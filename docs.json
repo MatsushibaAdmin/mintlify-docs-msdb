@@ -6,6 +6,7 @@
     "light": "/logo/light.svg"
   },
   "favicon": "/favicon.png",
+  "theme": "mint",
   "colors": {
     "primary": "#2563eb",
     "light": "#3b82f6",
