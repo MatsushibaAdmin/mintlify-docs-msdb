@@ -10,11 +10,7 @@
   "colors": {
     "primary": "#2563eb",
     "light": "#3b82f6",
-    "dark": "#1d4ed8",
-    "anchors": {
-      "from": "#2563eb",
-      "to": "#3b82f6"
-    }
+    "dark": "#1d4ed8"
   },
   "topbarLinks": [
     {
@@ -47,85 +43,36 @@
       "url": "https://github.com/MatsushibaCo/matsushibadb"
     }
   ],
-  "navigation": [
-    {
-      "group": "🚀 Get Started",
-      "pages": [
-        "introduction",
-        "getting-started",
-        "quick-start"
-      ]
-    },
-    {
-      "group": "📦 Installation",
-      "pages": [
-        "installation/npm",
-        "installation/python",
-        "installation/docker",
-        "installation/cloud"
-      ]
-    },
-    {
-      "group": "🧠 Core Concepts",
-      "pages": [
-        "core-concepts/database-operations",
-        "core-concepts/transactions",
-        "core-concepts/security",
-        "core-concepts/performance",
-        "core-concepts/data-types",
-        "core-concepts/indexing"
-      ]
-    },
-    {
-      "group": "📖 Advanced Guides",
-      "pages": [
-        "guides/advanced-usage",
-        "guides/framework-integrations",
-        "guides/migration-guide",
-        "guides/best-practices",
-        "guides/optimization-techniques"
-      ]
-    },
-    {
-      "group": "🔧 API Reference",
-      "pages": [
-        "api-reference/overview",
-        "api-reference/database-api",
-        "api-reference/http-api",
-        "api-reference/cli-reference",
-        "api-reference/webhooks"
-      ]
-    },
-    {
-      "group": "🚀 Deployment",
-      "pages": [
-        "deployment/production",
-        "deployment/cloud-platforms",
-        "deployment/kubernetes",
-        "deployment/monitoring",
-        "deployment/backup-restore"
-      ]
-    },
-    {
-      "group": "🛠️ Troubleshooting",
-      "pages": [
-        "troubleshooting/common-issues",
-        "troubleshooting/performance-issues",
-        "troubleshooting/error-handling",
-        "troubleshooting/debugging-guide",
-        "troubleshooting/faq"
-      ]
-    },
-    {
-      "group": "📚 Resources",
-      "pages": [
-        "resources/examples",
-        "resources/tutorials",
-        "resources/community",
-        "resources/changelog"
-      ]
-    }
-  ],
+  "navigation": {
+    "🚀 Get Started": [
+      "introduction",
+      "getting-started",
+      "quick-start"
+    ],
+    "📦 Installation": [
+      "installation/npm",
+      "installation/python",
+      "installation/docker",
+      "installation/cloud"
+    ],
+    "🧠 Core Concepts": [
+      "core-concepts/database-operations",
+      "core-concepts/transactions",
+      "core-concepts/security",
+      "core-concepts/performance",
+      "core-concepts/data-types",
+      "core-concepts/indexing"
+    ],
+    "📖 Advanced Guides": [
+      "guides/advanced-usage"
+    ],
+    "🔧 API Reference": [
+      "api-reference/overview"
+    ],
+    "🛠️ Troubleshooting": [
+      "troubleshooting/common-issues"
+    ]
+  },
   "footerSocials": {
     "twitter": "https://twitter.com/matsushibadb",
     "github": "https://github.com/MatsushibaCo/matsushibadb",
@@ -133,15 +80,7 @@
     "linkedin": "https://linkedin.com/company/matsushibadb"
   },
   "search": {
-    "enabled": true,
-    "provider": "algolia"
-  },
-  "integrations": {
-    "algolia": {
-      "appId": "YOUR_ALGOLIA_APP_ID",
-      "apiKey": "YOUR_ALGOLIA_API_KEY",
-      "indexName": "matsushibadb"
-    }
+    "enabled": true
   },
   "versioning": {
     "enabled": true,
