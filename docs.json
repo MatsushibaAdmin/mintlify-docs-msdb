@@ -43,54 +43,56 @@
       "url": "https://github.com/MatsushibaCo/matsushibadb"
     }
   ],
-  "navigation": [
-    {
-      "group": "🚀 Get Started",
-      "pages": [
-        "introduction",
-        "getting-started",
-        "quick-start"
-      ]
-    },
-    {
-      "group": "📦 Installation",
-      "pages": [
-        "installation/npm",
-        "installation/python",
-        "installation/docker",
-        "installation/cloud"
-      ]
-    },
-    {
-      "group": "🧠 Core Concepts",
-      "pages": [
-        "core-concepts/database-operations",
-        "core-concepts/transactions",
-        "core-concepts/security",
-        "core-concepts/performance",
-        "core-concepts/data-types",
-        "core-concepts/indexing"
-      ]
-    },
-    {
-      "group": "📖 Advanced Guides",
-      "pages": [
-        "guides/advanced-usage"
-      ]
-    },
-    {
-      "group": "🔧 API Reference",
-      "pages": [
-        "api-reference/overview"
-      ]
-    },
-    {
-      "group": "🛠️ Troubleshooting",
-      "pages": [
-        "troubleshooting/common-issues"
-      ]
-    }
-  ],
+  "navigation": {
+    "groups": [
+      {
+        "group": "🚀 Get Started",
+        "pages": [
+          "introduction",
+          "getting-started",
+          "quick-start"
+        ]
+      },
+      {
+        "group": "📦 Installation",
+        "pages": [
+          "installation/npm",
+          "installation/python",
+          "installation/docker",
+          "installation/cloud"
+        ]
+      },
+      {
+        "group": "🧠 Core Concepts",
+        "pages": [
+          "core-concepts/database-operations",
+          "core-concepts/transactions",
+          "core-concepts/security",
+          "core-concepts/performance",
+          "core-concepts/data-types",
+          "core-concepts/indexing"
+        ]
+      },
+      {
+        "group": "📖 Advanced Guides",
+        "pages": [
+          "guides/advanced-usage"
+        ]
+      },
+      {
+        "group": "🔧 API Reference",
+        "pages": [
+          "api-reference/overview"
+        ]
+      },
+      {
+        "group": "🛠️ Troubleshooting",
+        "pages": [
+          "troubleshooting/common-issues"
+        ]
+      }
+    ]
+  },
   "footerSocials": {
     "twitter": "https://twitter.com/matsushibadb",
     "github": "https://github.com/MatsushibaCo/matsushibadb",
