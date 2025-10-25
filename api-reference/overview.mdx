@@ -1,0 +1,357 @@
+---
+title: "API Reference Overview"
+description: "Complete API reference for MatsushibaDB including database operations, HTTP endpoints, and CLI commands."
+---
+
+# API Reference Overview
+
+Comprehensive reference for all MatsushibaDB APIs, including database operations, HTTP endpoints, and command-line tools.
+
+## Database API
+
+### Core Database Operations
+
+```javascript
+// Database connection
+const MatsushibaDB = require('matsushibadb');
+const db = new MatsushibaDB('database.db');
+
+// Basic operations
+db.run(sql, params)           // Execute SQL statement
+db.get(sql, params)           // Get single row
+db.all(sql, params)           // Get all rows
+db.each(sql, params, callback) // Iterate over rows
+
+// Prepared statements
+const stmt = db.prepare(sql);
+stmt.run(params)              // Execute prepared statement
+stmt.get(params)              // Get single row
+stmt.all(params)              // Get all rows
+stmt.finalize()               // Clean up statement
+
+// Transactions
+db.run('BEGIN TRANSACTION');
+db.run('COMMIT');
+db.run('ROLLBACK');
+```
+
+### Connection Pooling
+
+```javascript
+const { MatsushibaPool } = require('matsushibadb');
+
+const pool = new MatsushibaPool({
+    database: 'app.db',
+    min: 5,
+    max: 20,
+    acquireTimeoutMillis: 30000
+});
+
+// Use pool
+const connection = await pool.acquire();
+try {
+    const result = connection.all('SELECT * FROM users');
+    return result;
+} finally {
+    pool.release(connection);
+}
+```
+
+## HTTP API
+
+### Authentication Endpoints
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{
+    "username": "user@example.com",
+    "password": "password123"
+}
+
+Response:
+{
+    "success": true,
+    "token": "jwt_token_here",
+    "user": {
+        "id": 1,
+        "username": "user@example.com",
+        "email": "user@example.com"
+    }
+}
+```
+
+```http
+POST /api/auth/register
+Content-Type: application/json
+
+{
+    "username": "newuser",
+    "email": "newuser@example.com",
+    "password": "password123"
+}
+
+Response:
+{
+    "success": true,
+    "userId": 123,
+    "message": "User registered successfully"
+}
+```
+
+### User Management
+
+```http
+GET /api/users
+Authorization: Bearer jwt_token_here
+
+Response:
+{
+    "users": [
+        {
+            "id": 1,
+            "username": "john_doe",
+            "email": "john@example.com",
+            "status": "active",
+            "createdAt": "2024-01-15T10:30:00Z"
+        }
+    ],
+    "total": 1,
+    "page": 1,
+    "pageSize": 10
+}
+```
+
+```http
+GET /api/users/:id
+Authorization: Bearer jwt_token_here
+
+Response:
+{
+    "id": 1,
+    "username": "john_doe",
+    "email": "john@example.com",
+    "status": "active",
+    "createdAt": "2024-01-15T10:30:00Z",
+    "updatedAt": "2024-01-15T10:30:00Z"
+}
+```
+
+### Data Operations
+
+```http
+POST /api/data/query
+Authorization: Bearer jwt_token_here
+Content-Type: application/json
+
+{
+    "sql": "SELECT * FROM users WHERE status = ?",
+    "params": ["active"]
+}
+
+Response:
+{
+    "success": true,
+    "data": [
+        {
+            "id": 1,
+            "username": "john_doe",
+            "email": "john@example.com",
+            "status": "active"
+        }
+    ],
+    "count": 1
+}
+```
+
+## CLI Commands
+
+### Database Management
+
+```bash
+# Initialize database
+matsushiba init database.db
+
+# Create table
+matsushiba create-table users "id INTEGER PRIMARY KEY, name TEXT, email TEXT"
+
+# Insert data
+matsushiba insert users "name='John Doe', email='john@example.com'"
+
+# Query data
+matsushiba query "SELECT * FROM users"
+
+# Update data
+matsushiba update users "name='Jane Doe'" "WHERE id = 1"
+
+# Delete data
+matsushiba delete users "WHERE id = 1"
+```
+
+### Database Operations
+
+```bash
+# Backup database
+matsushiba backup database.db --output backup.db
+
+# Restore database
+matsushiba restore backup.db --output restored.db
+
+# Analyze database
+matsushiba analyze database.db
+
+# Optimize database
+matsushiba optimize database.db
+
+# Check integrity
+matsushiba integrity-check database.db
+```
+
+### Performance Monitoring
+
+```bash
+# Performance analysis
+matsushiba performance database.db
+
+# Index analysis
+matsushiba indexes database.db
+
+# Query analysis
+matsushiba explain "SELECT * FROM users WHERE status = 'active'"
+
+# Statistics
+matsushiba stats database.db
+```
+
+## Error Codes
+
+### Database Errors
+
+| Code | Description | Solution |
+|------|-------------|----------|
+| `SQLITE_CONSTRAINT` | Constraint violation | Check data constraints |
+| `SQLITE_BUSY` | Database locked | Retry operation |
+| `SQLITE_FULL` | Database full | Free up space |
+| `SQLITE_CORRUPT` | Database corrupted | Restore from backup |
+
+### HTTP Errors
+
+| Code | Description | Solution |
+|------|-------------|----------|
+| `400` | Bad Request | Check request format |
+| `401` | Unauthorized | Provide valid token |
+| `403` | Forbidden | Check permissions |
+| `404` | Not Found | Verify resource exists |
+| `500` | Internal Error | Check server logs |
+
+## Rate Limits
+
+### API Rate Limits
+
+- **Authentication**: 5 requests per minute
+- **Data queries**: 100 requests per minute
+- **Bulk operations**: 10 requests per minute
+- **Admin operations**: 20 requests per minute
+
+### Rate Limit Headers
+
+```http
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1640995200
+```
+
+## Webhooks
+
+### Webhook Events
+
+```json
+{
+    "event": "user.created",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "data": {
+        "id": 123,
+        "username": "newuser",
+        "email": "newuser@example.com"
+    }
+}
+```
+
+### Supported Events
+
+- `user.created` - New user registered
+- `user.updated` - User profile updated
+- `user.deleted` - User account deleted
+- `data.inserted` - New data inserted
+- `data.updated` - Data updated
+- `data.deleted` - Data deleted
+
+## SDKs
+
+### Node.js SDK
+
+```bash
+npm install matsushibadb
+```
+
+```javascript
+const MatsushibaDB = require('matsushibadb');
+const db = new MatsushibaDB('database.db');
+```
+
+### Python SDK
+
+```bash
+pip install matsushibadb
+```
+
+```python
+import matsushibadb
+db = matsushibadb.MatsushibaDB('database.db')
+```
+
+### Go SDK
+
+```bash
+go get github.com/matsushibadb/go-sdk
+```
+
+```go
+import "github.com/matsushibadb/go-sdk"
+
+db, err := matsushibadb.Open("database.db")
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Prepared Statements">
+    Always use prepared statements for repeated queries to improve performance and security.
+  </Step>
+  <Step title="Handle Errors Properly">
+    Implement proper error handling for all API operations.
+  </Step>
+  <Step title="Use Connection Pooling">
+    Use connection pooling for production applications.
+  </Step>
+  <Step title="Implement Rate Limiting">
+    Respect rate limits and implement client-side rate limiting.
+  </Step>
+  <Step title="Use HTTPS">
+    Always use HTTPS in production for secure communication.
+  </Step>
+  <Step title="Monitor Performance">
+    Monitor API performance and optimize based on usage patterns.
+  </Step>
+  <Step title="Version Your APIs">
+    Use API versioning to maintain backward compatibility.
+  </Step>
+  <Step title="Document Your APIs">
+    Keep API documentation up to date with changes.
+  </Step>
+</Steps>
+
+<Note>
+This API reference provides comprehensive coverage of all MatsushibaDB interfaces. For specific implementation details, refer to the individual API documentation sections.
+</Note>

@@ -1,0 +1,739 @@
+---
+title: "NPM Installation"
+description: "Complete guide to installing and using MatsushibaDB with Node.js and NPM. Includes setup, configuration, and advanced features."
+---
+
+# NPM Installation
+
+Install MatsushibaDB for Node.js applications using NPM. Perfect for web applications, APIs, and server-side development.
+
+## Installation
+
+### Basic Installation
+
+```bash
+npm install matsushibadb
+```
+
+### Global Installation (CLI Tools)
+
+```bash
+npm install -g matsushibadb
+```
+
+### Development Dependencies
+
+```bash
+npm install --save-dev matsushibadb
+```
+
+## Quick Start
+
+```javascript
+const MatsushibaDB = require('matsushibadb');
+
+// Create a new database
+const db = new MatsushibaDB('app.db');
+
+// Create a table
+db.run(`
+  CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// Insert data
+db.run('INSERT INTO users (name, email) VALUES (?, ?)', 
+       ['John Doe', 'john@example.com']);
+
+// Query data
+const users = db.all('SELECT * FROM users');
+console.log('Users:', users);
+
+// Close the database
+db.close();
+```
+
+## Configuration Options
+
+### Basic Configuration
+
+```javascript
+const MatsushibaDB = require('matsushibadb');
+
+const db = new MatsushibaDB('app.db', {
+  // Enable WAL mode for better concurrency
+  enableWAL: true,
+  
+  // Set cache size (in pages)
+  cacheSize: 2000,
+  
+  // Synchronous mode
+  synchronous: 'NORMAL',
+  
+  // Journal mode
+  journalMode: 'WAL',
+  
+  // Temporary storage
+  tempStore: 'MEMORY',
+  
+  // Foreign key constraints
+  foreignKeys: true
+});
+```
+
+### Advanced Configuration
+
+```javascript
+const db = new MatsushibaDB('app.db', {
+  // Performance settings
+  performance: {
+    enableWAL: true,
+    cacheSize: 5000,
+    synchronous: 'NORMAL',
+    journalMode: 'WAL',
+    tempStore: 'MEMORY',
+    optimizeQueries: true,
+    preparedStatementCache: true,
+    preparedStatementCacheSize: 100
+  },
+  
+  // Memory optimization
+  memory: {
+    mmapSize: 268435456, // 256MB
+    optimizeMemory: true,
+    gcThreshold: 1000
+  },
+  
+  // I/O optimization
+  io: {
+    directIO: true,
+    optimizeIO: true,
+    bufferSize: 65536 // 64KB
+  },
+  
+  // Security settings
+  security: {
+    enableEncryption: true,
+    encryptionKey: process.env.DB_ENCRYPTION_KEY,
+    enableAuditLogging: true
+  }
+});
+```
+
+## Connection Pooling
+
+For production applications, use connection pooling:
+
+```javascript
+const { MatsushibaPool } = require('matsushibadb');
+
+const pool = new MatsushibaPool({
+  database: 'app.db',
+  min: 5,                    // Minimum connections
+  max: 20,                   // Maximum connections
+  acquireTimeoutMillis: 30000,
+  createTimeoutMillis: 30000,
+  destroyTimeoutMillis: 5000,
+  idleTimeoutMillis: 30000,
+  reapIntervalMillis: 1000,
+  createRetryIntervalMillis: 200,
+  propagateCreateError: false
+});
+
+// Use the pool
+async function getUsers() {
+  const connection = await pool.acquire();
+  try {
+    const users = connection.all('SELECT * FROM users WHERE active = 1');
+    return users;
+  } finally {
+    pool.release(connection);
+  }
+}
+
+// Transaction with pool
+async function createUserWithProfile(userData, profileData) {
+  const connection = await pool.acquire();
+  try {
+    await connection.beginTransaction();
+    
+    const userResult = connection.run(`
+      INSERT INTO users (name, email, password_hash)
+      VALUES (?, ?, ?)
+    `, [userData.name, userData.email, userData.passwordHash]);
+    
+    const profileResult = connection.run(`
+      INSERT INTO profiles (user_id, bio, avatar_url)
+      VALUES (?, ?, ?)
+    `, [userResult.lastInsertRowid, profileData.bio, profileData.avatarUrl]);
+    
+    await connection.commit();
+    return { userId: userResult.lastInsertRowid, profileId: profileResult.lastInsertRowid };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    pool.release(connection);
+  }
+}
+```
+
+## Async/Await Support
+
+MatsushibaDB provides full async/await support:
+
+```javascript
+const MatsushibaDB = require('matsushibadb');
+
+async function asyncExample() {
+  const db = new MatsushibaDB('async-app.db');
+  
+  try {
+    // Async operations
+    await db.run(`
+      CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        price DECIMAL(10,2),
+        stock INTEGER DEFAULT 0
+      )
+    `);
+    
+    // Insert with async
+    const result = await db.run(`
+      INSERT INTO products (name, price, stock)
+      VALUES (?, ?, ?)
+    `, ['Laptop', 999.99, 10]);
+    
+    console.log('Product created with ID:', result.lastInsertRowid);
+    
+    // Query with async
+    const products = await db.all('SELECT * FROM products WHERE stock > 0');
+    console.log('Available products:', products);
+    
+    // Get single record with async
+    const product = await db.get('SELECT * FROM products WHERE id = ?', [result.lastInsertRowid]);
+    console.log('Product details:', product);
+    
+  } catch (error) {
+    console.error('Database error:', error);
+  } finally {
+    await db.close();
+  }
+}
+
+asyncExample();
+```
+
+## Express.js Integration
+
+### Basic Express Setup
+
+```javascript
+const express = require('express');
+const MatsushibaDB = require('matsushibadb');
+const cors = require('cors');
+const helmet = require('helmet');
+
+const app = express();
+const db = new MatsushibaDB('express-app.db');
+
+// Middleware
+app.use(helmet());
+app.use(cors());
+app.use(express.json());
+
+// Database initialization
+function initializeDatabase() {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  
+  db.run(`
+    CREATE TABLE IF NOT EXISTS posts (
+      id INTEGER PRIMARY KEY,
+      title TEXT NOT NULL,
+      content TEXT,
+      author_id INTEGER,
+      published BOOLEAN DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (author_id) REFERENCES users(id)
+    )
+  `);
+  
+  // Create indexes
+  db.run('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_posts_published ON posts(published)');
+}
+
+// Routes
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    database: 'connected'
+  });
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Name, email, and password are required' });
+    }
+    
+    const existingUser = db.get('SELECT * FROM users WHERE email = ?', [email]);
+    if (existingUser) {
+      return res.status(409).json({ error: 'User with this email already exists' });
+    }
+    
+    const bcrypt = require('bcrypt');
+    const passwordHash = bcrypt.hashSync(password, 10);
+    
+    const result = db.run(`
+      INSERT INTO users (name, email, password_hash)
+      VALUES (?, ?, ?)
+    `, [name, email, passwordHash]);
+    
+    const user = db.get('SELECT * FROM users WHERE id = ?', [result.lastInsertRowid]);
+    
+    res.status(201).json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      createdAt: user.created_at
+    });
+  } catch (error) {
+    console.error('Error creating user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/posts', async (req, res) => {
+  try {
+    const published = req.query.published !== 'false';
+    const posts = db.all(`
+      SELECT p.*, u.name as author_name
+      FROM posts p
+      JOIN users u ON p.author_id = u.id
+      WHERE p.published = ?
+      ORDER BY p.created_at DESC
+    `, [published ? 1 : 0]);
+    
+    res.json(posts);
+  } catch (error) {
+    console.error('Error fetching posts:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Start server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  initializeDatabase();
+});
+```
+
+### Advanced Express Integration
+
+```javascript
+// Advanced Express setup with middleware and error handling
+const express = require('express');
+const MatsushibaDB = require('matsushibadb');
+const { MatsushibaPool } = require('matsushibadb');
+const rateLimit = require('express-rate-limit');
+const compression = require('compression');
+
+const app = express();
+
+// Connection pool
+const pool = new MatsushibaPool({
+  database: 'production-app.db',
+  min: 5,
+  max: 20,
+  acquireTimeoutMillis: 30000
+});
+
+// Middleware
+app.use(compression());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // limit each IP to 1000 requests per windowMs
+  message: 'Too many requests from this IP'
+});
+app.use('/api/', limiter);
+
+// Database middleware
+app.use((req, res, next) => {
+  req.db = pool;
+  next();
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
+});
+
+// Routes with connection pooling
+app.get('/api/users/:id', async (req, res) => {
+  const connection = await req.db.acquire();
+  try {
+    const user = connection.get('SELECT * FROM users WHERE id = ?', [req.params.id]);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    req.db.release(connection);
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+```
+
+## CLI Tools
+
+MatsushibaDB includes powerful CLI tools:
+
+```bash
+# Initialize a new database
+matsushiba init my-database.db
+
+# Create a table
+matsushiba create-table users "id INTEGER PRIMARY KEY, name TEXT, email TEXT"
+
+# Insert data
+matsushiba insert users "name='John Doe', email='john@example.com'"
+
+# Query data
+matsushiba query "SELECT * FROM users"
+
+# Export data
+matsushiba export users --format json --output users.json
+
+# Import data
+matsushiba import users --format json --input users.json
+
+# Backup database
+matsushiba backup my-database.db --output backup.db
+
+# Restore database
+matsushiba restore backup.db --output restored.db
+
+# Performance analysis
+matsushiba analyze my-database.db
+
+# Database statistics
+matsushiba stats my-database.db
+```
+
+## Testing
+
+### Unit Testing with Jest
+
+```javascript
+const MatsushibaDB = require('matsushibadb');
+
+describe('MatsushibaDB Tests', () => {
+  let db;
+  
+  beforeEach(() => {
+    db = new MatsushibaDB(':memory:'); // In-memory database for tests
+    db.run(`
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL
+      )
+    `);
+  });
+  
+  afterEach(() => {
+    db.close();
+  });
+  
+  test('should create a user', () => {
+    const result = db.run('INSERT INTO users (name, email) VALUES (?, ?)', 
+                          ['John Doe', 'john@example.com']);
+    
+    expect(result.lastInsertRowid).toBe(1);
+    expect(result.changes).toBe(1);
+  });
+  
+  test('should retrieve users', () => {
+    db.run('INSERT INTO users (name, email) VALUES (?, ?)', 
+           ['John Doe', 'john@example.com']);
+    
+    const users = db.all('SELECT * FROM users');
+    expect(users).toHaveLength(1);
+    expect(users[0].name).toBe('John Doe');
+    expect(users[0].email).toBe('john@example.com');
+  });
+  
+  test('should handle unique constraints', () => {
+    db.run('INSERT INTO users (name, email) VALUES (?, ?)', 
+           ['John Doe', 'john@example.com']);
+    
+    expect(() => {
+      db.run('INSERT INTO users (name, email) VALUES (?, ?)', 
+             ['Jane Doe', 'john@example.com']);
+    }).toThrow();
+  });
+});
+```
+
+### Integration Testing
+
+```javascript
+const request = require('supertest');
+const express = require('express');
+const MatsushibaDB = require('matsushibadb');
+
+describe('API Integration Tests', () => {
+  let app;
+  let db;
+  
+  beforeAll(() => {
+    app = express();
+    db = new MatsushibaDB(':memory:');
+    
+    // Setup routes
+    app.use(express.json());
+    app.post('/api/users', (req, res) => {
+      const { name, email } = req.body;
+      const result = db.run('INSERT INTO users (name, email) VALUES (?, ?)', 
+                           [name, email]);
+      res.status(201).json({ id: result.lastInsertRowid, name, email });
+    });
+    
+    app.get('/api/users', (req, res) => {
+      const users = db.all('SELECT * FROM users');
+      res.json(users);
+    });
+  });
+  
+  afterAll(() => {
+    db.close();
+  });
+  
+  test('should create user via API', async () => {
+    const response = await request(app)
+      .post('/api/users')
+      .send({ name: 'John Doe', email: 'john@example.com' })
+      .expect(201);
+    
+    expect(response.body.name).toBe('John Doe');
+    expect(response.body.email).toBe('john@example.com');
+  });
+  
+  test('should retrieve users via API', async () => {
+    db.run('INSERT INTO users (name, email) VALUES (?, ?)', 
+           ['John Doe', 'john@example.com']);
+    
+    const response = await request(app)
+      .get('/api/users')
+      .expect(200);
+    
+    expect(response.body).toHaveLength(1);
+    expect(response.body[0].name).toBe('John Doe');
+  });
+});
+```
+
+## Performance Optimization
+
+### Query Optimization
+
+```javascript
+// Use prepared statements for repeated queries
+const getUserStmt = db.prepare('SELECT * FROM users WHERE id = ?');
+const user = getUserStmt.get(1);
+
+// Use indexes for better performance
+db.run('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+db.run('CREATE INDEX IF NOT EXISTS idx_users_name ON users(name)');
+
+// Batch operations
+const insertUserStmt = db.prepare('INSERT INTO users (name, email) VALUES (?, ?)');
+const users = [
+  ['John Doe', 'john@example.com'],
+  ['Jane Smith', 'jane@example.com'],
+  ['Bob Johnson', 'bob@example.com']
+];
+
+const insertMany = db.transaction((users) => {
+  for (const user of users) {
+    insertUserStmt.run(user);
+  }
+});
+
+insertMany(users);
+```
+
+### Memory Management
+
+```javascript
+// Use streaming for large datasets
+const stmt = db.prepare('SELECT * FROM large_table');
+stmt.each((row) => {
+  // Process each row
+  console.log(row);
+}, () => {
+  // All rows processed
+  stmt.finalize();
+});
+
+// Clean up prepared statements
+const stmt = db.prepare('SELECT * FROM users WHERE id = ?');
+// ... use statement
+stmt.finalize(); // Always finalize when done
+```
+
+## Production Deployment
+
+### Environment Configuration
+
+```javascript
+// config/database.js
+const MatsushibaDB = require('matsushibadb');
+
+const config = {
+  development: {
+    database: 'dev.db',
+    enableWAL: true,
+    cacheSize: 1000
+  },
+  production: {
+    database: process.env.DATABASE_PATH || '/data/production.db',
+    enableWAL: true,
+    cacheSize: 5000,
+    synchronous: 'NORMAL',
+    journalMode: 'WAL',
+    tempStore: 'MEMORY',
+    security: {
+      enableEncryption: true,
+      encryptionKey: process.env.DB_ENCRYPTION_KEY
+    }
+  }
+};
+
+function createDatabase(env = 'development') {
+  const dbConfig = config[env];
+  return new MatsushibaDB(dbConfig.database, dbConfig);
+}
+
+module.exports = { createDatabase };
+```
+
+### Process Management
+
+```javascript
+// Use PM2 for process management
+// ecosystem.config.js
+module.exports = {
+  apps: [{
+    name: 'matsushiba-app',
+    script: 'app.js',
+    instances: 'max',
+    exec_mode: 'cluster',
+    env: {
+      NODE_ENV: 'production',
+      DATABASE_PATH: '/data/production.db'
+    },
+    error_file: './logs/err.log',
+    out_file: './logs/out.log',
+    log_file: './logs/combined.log',
+    time: true
+  }]
+};
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**Database Locked Error:**
+```javascript
+// Handle database locked errors
+try {
+  db.run('INSERT INTO users (name, email) VALUES (?, ?)', [name, email]);
+} catch (error) {
+  if (error.code === 'SQLITE_BUSY') {
+    // Retry after a short delay
+    setTimeout(() => {
+      db.run('INSERT INTO users (name, email) VALUES (?, ?)', [name, email]);
+    }, 100);
+  } else {
+    throw error;
+  }
+}
+```
+
+**Memory Issues:**
+```javascript
+// Monitor memory usage
+const used = process.memoryUsage();
+console.log('Memory usage:', {
+  rss: Math.round(used.rss / 1024 / 1024) + ' MB',
+  heapTotal: Math.round(used.heapTotal / 1024 / 1024) + ' MB',
+  heapUsed: Math.round(used.heapUsed / 1024 / 1024) + ' MB'
+});
+
+// Force garbage collection if available
+if (global.gc) {
+  global.gc();
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Connection Pooling">
+    Always use connection pooling for production applications to manage database connections efficiently.
+  </Step>
+  <Step title="Implement Error Handling">
+    Wrap all database operations in try-catch blocks and handle specific error types appropriately.
+  </Step>
+  <Step title="Use Prepared Statements">
+    Use prepared statements for repeated queries to improve performance and prevent SQL injection.
+  </Step>
+  <Step title="Optimize Queries">
+    Create appropriate indexes and optimize queries for better performance.
+  </Step>
+  <Step title="Monitor Performance">
+    Track query performance and database health metrics in production.
+  </Step>
+  <Step title="Regular Maintenance">
+    Perform regular database maintenance including VACUUM and ANALYZE operations.
+  </Step>
+</Steps>
+
+<Note>
+For production applications, always use connection pooling, implement proper error handling, and monitor database performance. Consider using environment-specific configurations and proper logging.
+</Note>

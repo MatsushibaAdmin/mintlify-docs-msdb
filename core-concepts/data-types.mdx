@@ -1,0 +1,1082 @@
+---
+title: "Data Types"
+description: "Comprehensive guide to MatsushibaDB data types including storage, constraints, and best practices for data modeling."
+---
+
+# Data Types
+
+Master MatsushibaDB data types to design efficient database schemas and optimize data storage and retrieval.
+
+## Numeric Data Types
+
+### Integer Types
+
+```sql
+-- Integer storage classes
+CREATE TABLE integer_examples (
+    id INTEGER PRIMARY KEY,           -- 64-bit signed integer
+    small_int SMALLINT,               -- 16-bit signed integer
+    medium_int MEDIUMINT,             -- 24-bit signed integer
+    big_int BIGINT,                   -- 64-bit signed integer
+    tiny_int TINYINT                  -- 8-bit signed integer
+);
+
+-- Integer constraints
+CREATE TABLE integer_constraints (
+    id INTEGER PRIMARY KEY,
+    positive_number INTEGER CHECK (positive_number > 0),
+    range_number INTEGER CHECK (range_number BETWEEN 1 AND 100),
+    not_null_number INTEGER NOT NULL,
+    unique_number INTEGER UNIQUE
+);
+
+-- Auto-incrementing integers
+CREATE TABLE auto_increment_example (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Floating-Point Types
+
+```sql
+-- Real and floating-point types
+CREATE TABLE float_examples (
+    id INTEGER PRIMARY KEY,
+    real_value REAL,                 -- 64-bit floating point
+    float_value FLOAT,               -- 32-bit floating point
+    double_value DOUBLE,             -- 64-bit floating point
+    decimal_value DECIMAL(10,2),     -- Fixed-point decimal
+    numeric_value NUMERIC(8,4)       -- Fixed-point numeric
+);
+
+-- Precision and scale examples
+CREATE TABLE precision_examples (
+    id INTEGER PRIMARY KEY,
+    price DECIMAL(10,2),             -- Up to 8 digits before decimal, 2 after
+    percentage DECIMAL(5,2),         -- Up to 3 digits before decimal, 2 after
+    scientific REAL,                 -- Scientific notation support
+    currency DECIMAL(15,2)           -- Large currency values
+);
+```
+
+### Numeric Operations and Functions
+
+<CodeGroup>
+```javascript Node.js
+// Numeric operations
+function numericOperations() {
+    // Insert numeric data
+    db.run(`
+        INSERT INTO numeric_examples (real_value, float_value, decimal_value)
+        VALUES (?, ?, ?)
+    `, [3.14159, 2.71828, 99.99]);
+    
+    // Mathematical operations
+    const result = db.get(`
+        SELECT 
+            real_value,
+            float_value,
+            decimal_value,
+            real_value + float_value as sum,
+            real_value * decimal_value as product,
+            ROUND(decimal_value, 1) as rounded,
+            ABS(real_value) as absolute,
+            CEIL(real_value) as ceiling,
+            FLOOR(real_value) as floor
+        FROM numeric_examples 
+        WHERE id = ?
+    `, [1]);
+    
+    console.log('Numeric operations:', result);
+    
+    // Aggregate functions
+    const stats = db.get(`
+        SELECT 
+            COUNT(*) as count,
+            AVG(decimal_value) as average,
+            MIN(decimal_value) as minimum,
+            MAX(decimal_value) as maximum,
+            SUM(decimal_value) as total
+        FROM numeric_examples
+    `);
+    
+    console.log('Numeric statistics:', stats);
+}
+
+// Numeric validation
+function validateNumericData(data) {
+    const errors = [];
+    
+    if (data.price && (isNaN(data.price) || data.price < 0)) {
+        errors.push('Price must be a positive number');
+    }
+    
+    if (data.quantity && (!Number.isInteger(data.quantity) || data.quantity < 0)) {
+        errors.push('Quantity must be a positive integer');
+    }
+    
+    if (data.percentage && (data.percentage < 0 || data.percentage > 100)) {
+        errors.push('Percentage must be between 0 and 100');
+    }
+    
+    return errors;
+}
+```
+
+```python Python
+# Numeric operations
+def numeric_operations():
+    # Insert numeric data
+    db.execute('''
+        INSERT INTO numeric_examples (real_value, float_value, decimal_value)
+        VALUES (?, ?, ?)
+    ''', (3.14159, 2.71828, 99.99))
+    
+    # Mathematical operations
+    result = db.execute('''
+        SELECT 
+            real_value,
+            float_value,
+            decimal_value,
+            real_value + float_value as sum,
+            real_value * decimal_value as product,
+            ROUND(decimal_value, 1) as rounded,
+            ABS(real_value) as absolute,
+            CEIL(real_value) as ceiling,
+            FLOOR(real_value) as floor
+        FROM numeric_examples 
+        WHERE id = ?
+    ''', (1,)).fetchone()
+    
+    print('Numeric operations:', result)
+    
+    # Aggregate functions
+    stats = db.execute('''
+        SELECT 
+            COUNT(*) as count,
+            AVG(decimal_value) as average,
+            MIN(decimal_value) as minimum,
+            MAX(decimal_value) as maximum,
+            SUM(decimal_value) as total
+        FROM numeric_examples
+    ''').fetchone()
+    
+    print('Numeric statistics:', stats)
+
+# Numeric validation
+def validate_numeric_data(data):
+    errors = []
+    
+    if data.get('price') and (not isinstance(data['price'], (int, float)) or data['price'] < 0):
+        errors.append('Price must be a positive number')
+    
+    if data.get('quantity') and (not isinstance(data['quantity'], int) or data['quantity'] < 0):
+        errors.append('Quantity must be a positive integer')
+    
+    if data.get('percentage') and (data['percentage'] < 0 or data['percentage'] > 100):
+        errors.append('Percentage must be between 0 and 100')
+    
+    return errors
+```
+</CodeGroup>
+
+## Text Data Types
+
+### String Types
+
+```sql
+-- Text storage classes
+CREATE TABLE text_examples (
+    id INTEGER PRIMARY KEY,
+    varchar_field VARCHAR(255),       -- Variable-length string with limit
+    char_field CHAR(10),             -- Fixed-length string
+    text_field TEXT,                 -- Variable-length string without limit
+    clob_field CLOB,                 -- Character Large Object
+    nvarchar_field NVARCHAR(100),    -- Unicode variable-length string
+    nchar_field NCHAR(20)            -- Unicode fixed-length string
+);
+
+-- Text constraints
+CREATE TABLE text_constraints (
+    id INTEGER PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    bio TEXT CHECK (LENGTH(bio) <= 500),
+    status TEXT CHECK (status IN ('active', 'inactive', 'suspended'))
+);
+```
+
+### Text Operations and Functions
+
+<CodeGroup>
+```javascript Node.js
+// Text operations
+function textOperations() {
+    // Insert text data
+    db.run(`
+        INSERT INTO text_examples (varchar_field, char_field, text_field)
+        VALUES (?, ?, ?)
+    `, ['Hello World', 'Fixed', 'This is a long text field']);
+    
+    // String functions
+    const result = db.get(`
+        SELECT 
+            varchar_field,
+            char_field,
+            text_field,
+            LENGTH(varchar_field) as length,
+            UPPER(varchar_field) as uppercase,
+            LOWER(varchar_field) as lowercase,
+            SUBSTR(varchar_field, 1, 5) as substring,
+            REPLACE(varchar_field, 'World', 'Universe') as replaced,
+            TRIM(char_field) as trimmed
+        FROM text_examples 
+        WHERE id = ?
+    `, [1]);
+    
+    console.log('Text operations:', result);
+    
+    // Pattern matching
+    const patternResults = db.all(`
+        SELECT varchar_field
+        FROM text_examples
+        WHERE varchar_field LIKE 'Hello%'
+        OR varchar_field GLOB 'H*'
+        OR varchar_field REGEXP '^[A-Z]'
+    `);
+    
+    console.log('Pattern matching results:', patternResults);
+}
+
+// Text validation
+function validateTextData(data) {
+    const errors = [];
+    
+    if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+        errors.push('Invalid email format');
+    }
+    
+    if (data.username && (data.username.length < 3 || data.username.length > 50)) {
+        errors.push('Username must be between 3 and 50 characters');
+    }
+    
+    if (data.password && data.password.length < 8) {
+        errors.push('Password must be at least 8 characters');
+    }
+    
+    return errors;
+}
+```
+
+```python Python
+# Text operations
+def text_operations():
+    # Insert text data
+    db.execute('''
+        INSERT INTO text_examples (varchar_field, char_field, text_field)
+        VALUES (?, ?, ?)
+    ''', ('Hello World', 'Fixed', 'This is a long text field'))
+    
+    # String functions
+    result = db.execute('''
+        SELECT 
+            varchar_field,
+            char_field,
+            text_field,
+            LENGTH(varchar_field) as length,
+            UPPER(varchar_field) as uppercase,
+            LOWER(varchar_field) as lowercase,
+            SUBSTR(varchar_field, 1, 5) as substring,
+            REPLACE(varchar_field, 'World', 'Universe') as replaced,
+            TRIM(char_field) as trimmed
+        FROM text_examples 
+        WHERE id = ?
+    ''', (1,)).fetchone()
+    
+    print('Text operations:', result)
+    
+    # Pattern matching
+    pattern_results = db.execute('''
+        SELECT varchar_field
+        FROM text_examples
+        WHERE varchar_field LIKE 'Hello%'
+        OR varchar_field GLOB 'H*'
+        OR varchar_field REGEXP '^[A-Z]'
+    ''').fetchall()
+    
+    print('Pattern matching results:', pattern_results)
+
+# Text validation
+def validate_text_data(data):
+    import re
+    errors = []
+    
+    if data.get('email') and not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', data['email']):
+        errors.append('Invalid email format')
+    
+    if data.get('username') and (len(data['username']) < 3 or len(data['username']) > 50):
+        errors.append('Username must be between 3 and 50 characters')
+    
+    if data.get('password') and len(data['password']) < 8:
+        errors.append('Password must be at least 8 characters')
+    
+    return errors
+```
+</CodeGroup>
+
+## Date and Time Types
+
+### DateTime Types
+
+```sql
+-- Date and time storage
+CREATE TABLE datetime_examples (
+    id INTEGER PRIMARY KEY,
+    date_field DATE,                 -- Date only (YYYY-MM-DD)
+    time_field TIME,                 -- Time only (HH:MM:SS)
+    datetime_field DATETIME,         -- Date and time (YYYY-MM-DD HH:MM:SS)
+    timestamp_field TIMESTAMP,       -- Unix timestamp
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Date constraints
+CREATE TABLE date_constraints (
+    id INTEGER PRIMARY KEY,
+    birth_date DATE CHECK (birth_date < date('now')),
+    event_date DATE CHECK (event_date >= date('now')),
+    start_time TIME CHECK (start_time >= '09:00:00'),
+    end_time TIME CHECK (end_time <= '18:00:00')
+);
+```
+
+### DateTime Operations
+
+<CodeGroup>
+```javascript Node.js
+// DateTime operations
+function datetimeOperations() {
+    // Insert datetime data
+    db.run(`
+        INSERT INTO datetime_examples (date_field, time_field, datetime_field)
+        VALUES (?, ?, ?)
+    `, ['2024-01-15', '14:30:00', '2024-01-15 14:30:00']);
+    
+    // DateTime functions
+    const result = db.get(`
+        SELECT 
+            date_field,
+            time_field,
+            datetime_field,
+            date('now') as current_date,
+            time('now') as current_time,
+            datetime('now') as current_datetime,
+            strftime('%Y-%m-%d', datetime_field) as formatted_date,
+            strftime('%H:%M:%S', datetime_field) as formatted_time,
+            julianday('now') - julianday(datetime_field) as days_ago
+        FROM datetime_examples 
+        WHERE id = ?
+    `, [1]);
+    
+    console.log('DateTime operations:', result);
+    
+    // Date arithmetic
+    const dateArithmetic = db.all(`
+        SELECT 
+            datetime_field,
+            datetime(datetime_field, '+1 day') as next_day,
+            datetime(datetime_field, '+1 month') as next_month,
+            datetime(datetime_field, '+1 year') as next_year,
+            datetime(datetime_field, '+7 days', '+2 hours') as week_and_hours_later
+        FROM datetime_examples
+    `);
+    
+    console.log('Date arithmetic:', dateArithmetic);
+}
+
+// DateTime validation
+function validateDateTimeData(data) {
+    const errors = [];
+    
+    if (data.birth_date && new Date(data.birth_date) > new Date()) {
+        errors.push('Birth date cannot be in the future');
+    }
+    
+    if (data.event_date && new Date(data.event_date) < new Date()) {
+        errors.push('Event date cannot be in the past');
+    }
+    
+    if (data.start_time && data.end_time) {
+        const start = new Date(`2000-01-01 ${data.start_time}`);
+        const end = new Date(`2000-01-01 ${data.end_time}`);
+        if (start >= end) {
+            errors.push('Start time must be before end time');
+        }
+    }
+    
+    return errors;
+}
+```
+
+```python Python
+# DateTime operations
+def datetime_operations():
+    # Insert datetime data
+    db.execute('''
+        INSERT INTO datetime_examples (date_field, time_field, datetime_field)
+        VALUES (?, ?, ?)
+    ''', ('2024-01-15', '14:30:00', '2024-01-15 14:30:00'))
+    
+    # DateTime functions
+    result = db.execute('''
+        SELECT 
+            date_field,
+            time_field,
+            datetime_field,
+            date('now') as current_date,
+            time('now') as current_time,
+            datetime('now') as current_datetime,
+            strftime('%Y-%m-%d', datetime_field) as formatted_date,
+            strftime('%H:%M:%S', datetime_field) as formatted_time,
+            julianday('now') - julianday(datetime_field) as days_ago
+        FROM datetime_examples 
+        WHERE id = ?
+    ''', (1,)).fetchone()
+    
+    print('DateTime operations:', result)
+    
+    # Date arithmetic
+    date_arithmetic = db.execute('''
+        SELECT 
+            datetime_field,
+            datetime(datetime_field, '+1 day') as next_day,
+            datetime(datetime_field, '+1 month') as next_month,
+            datetime(datetime_field, '+1 year') as next_year,
+            datetime(datetime_field, '+7 days', '+2 hours') as week_and_hours_later
+        FROM datetime_examples
+    ''').fetchall()
+    
+    print('Date arithmetic:', date_arithmetic)
+
+# DateTime validation
+def validate_datetime_data(data):
+    from datetime import datetime
+    errors = []
+    
+    if data.get('birth_date') and datetime.strptime(data['birth_date'], '%Y-%m-%d') > datetime.now():
+        errors.append('Birth date cannot be in the future')
+    
+    if data.get('event_date') and datetime.strptime(data['event_date'], '%Y-%m-%d') < datetime.now():
+        errors.append('Event date cannot be in the past')
+    
+    if data.get('start_time') and data.get('end_time'):
+        start = datetime.strptime(f"2000-01-01 {data['start_time']}", '%Y-%m-%d %H:%M:%S')
+        end = datetime.strptime(f"2000-01-01 {data['end_time']}", '%Y-%m-%d %H:%M:%S')
+        if start >= end:
+            errors.append('Start time must be before end time')
+    
+    return errors
+```
+</CodeGroup>
+
+## Binary Data Types
+
+### BLOB Types
+
+```sql
+-- Binary data storage
+CREATE TABLE binary_examples (
+    id INTEGER PRIMARY KEY,
+    binary_field BINARY(16),         -- Fixed-length binary data
+    blob_field BLOB,                 -- Variable-length binary data
+    image_data BLOB,                 -- Image storage
+    file_data BLOB,                  -- File storage
+    encrypted_data BLOB              -- Encrypted data storage
+);
+
+-- Binary constraints
+CREATE TABLE binary_constraints (
+    id INTEGER PRIMARY KEY,
+    file_hash BLOB UNIQUE,           -- Unique file hash
+    image_data BLOB CHECK (LENGTH(image_data) <= 10485760), -- Max 10MB
+    encrypted_data BLOB NOT NULL      -- Required encrypted data
+);
+```
+
+### Binary Operations
+
+<CodeGroup>
+```javascript Node.js
+const crypto = require('crypto');
+
+// Binary operations
+function binaryOperations() {
+    // Generate binary data
+    const randomData = crypto.randomBytes(16);
+    const hash = crypto.createHash('sha256').update('test data').digest();
+    
+    // Insert binary data
+    db.run(`
+        INSERT INTO binary_examples (binary_field, blob_field)
+        VALUES (?, ?)
+    `, [randomData, hash]);
+    
+    // Retrieve and process binary data
+    const result = db.get(`
+        SELECT 
+            binary_field,
+            blob_field,
+            LENGTH(binary_field) as binary_length,
+            LENGTH(blob_field) as blob_length,
+            hex(binary_field) as binary_hex,
+            hex(blob_field) as blob_hex
+        FROM binary_examples 
+        WHERE id = ?
+    `, [1]);
+    
+    console.log('Binary operations:', result);
+    
+    // Convert hex back to buffer
+    const binaryBuffer = Buffer.from(result.binary_hex, 'hex');
+    const blobBuffer = Buffer.from(result.blob_hex, 'hex');
+    
+    console.log('Converted buffers:', { binaryBuffer, blobBuffer });
+}
+
+// File storage operations
+function storeFile(filename, fileData) {
+    try {
+        const hash = crypto.createHash('sha256').update(fileData).digest();
+        
+        db.run(`
+            INSERT INTO binary_examples (file_data, blob_field)
+            VALUES (?, ?)
+        `, [fileData, hash]);
+        
+        return { success: true, hash: hash.toString('hex') };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+}
+
+// Retrieve file
+function retrieveFile(fileId) {
+    try {
+        const result = db.get(`
+            SELECT file_data, blob_field
+            FROM binary_examples
+            WHERE id = ?
+        `, [fileId]);
+        
+        if (result) {
+            return {
+                success: true,
+                data: result.file_data,
+                hash: result.blob_field.toString('hex')
+            };
+        } else {
+            return { success: false, error: 'File not found' };
+        }
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+}
+```
+
+```python Python
+import hashlib
+import os
+
+# Binary operations
+def binary_operations():
+    # Generate binary data
+    random_data = os.urandom(16)
+    hash_obj = hashlib.sha256(b'test data')
+    hash_data = hash_obj.digest()
+    
+    # Insert binary data
+    db.execute('''
+        INSERT INTO binary_examples (binary_field, blob_field)
+        VALUES (?, ?)
+    ''', (random_data, hash_data))
+    
+    # Retrieve and process binary data
+    result = db.execute('''
+        SELECT 
+            binary_field,
+            blob_field,
+            LENGTH(binary_field) as binary_length,
+            LENGTH(blob_field) as blob_length,
+            hex(binary_field) as binary_hex,
+            hex(blob_field) as blob_hex
+        FROM binary_examples 
+        WHERE id = ?
+    ''', (1,)).fetchone()
+    
+    print('Binary operations:', result)
+    
+    # Convert hex back to bytes
+    binary_bytes = bytes.fromhex(result[4])
+    blob_bytes = bytes.fromhex(result[5])
+    
+    print('Converted bytes:', {'binary_bytes': binary_bytes, 'blob_bytes': blob_bytes})
+
+# File storage operations
+def store_file(filename, file_data):
+    try:
+        hash_obj = hashlib.sha256(file_data)
+        file_hash = hash_obj.digest()
+        
+        db.execute('''
+            INSERT INTO binary_examples (file_data, blob_field)
+            VALUES (?, ?)
+        ''', (file_data, file_hash))
+        
+        return {'success': True, 'hash': file_hash.hex()}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+# Retrieve file
+def retrieve_file(file_id):
+    try:
+        result = db.execute('''
+            SELECT file_data, blob_field
+            FROM binary_examples
+            WHERE id = ?
+        ''', (file_id,)).fetchone()
+        
+        if result:
+            return {
+                'success': True,
+                'data': result[0],
+                'hash': result[1].hex()
+            }
+        else:
+            return {'success': False, 'error': 'File not found'}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+```
+</CodeGroup>
+
+## JSON Data Types
+
+### JSON Storage and Operations
+
+```sql
+-- JSON data storage
+CREATE TABLE json_examples (
+    id INTEGER PRIMARY KEY,
+    json_data JSON,                  -- JSON data
+    jsonb_data JSONB,                -- Binary JSON (if supported)
+    metadata JSON,                   -- Metadata storage
+    settings JSON,                   -- User settings
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- JSON constraints
+CREATE TABLE json_constraints (
+    id INTEGER PRIMARY KEY,
+    user_profile JSON CHECK (json_valid(user_profile)),
+    config JSON CHECK (json_extract(config, '$.version') IS NOT NULL),
+    data JSON NOT NULL
+);
+```
+
+### JSON Operations
+
+<CodeGroup>
+```javascript Node.js
+// JSON operations
+function jsonOperations() {
+    // Insert JSON data
+    const userProfile = {
+        name: 'John Doe',
+        email: 'john@example.com',
+        preferences: {
+            theme: 'dark',
+            notifications: true,
+            language: 'en'
+        },
+        tags: ['developer', 'javascript', 'nodejs']
+    };
+    
+    db.run(`
+        INSERT INTO json_examples (json_data, metadata)
+        VALUES (?, ?)
+    `, [JSON.stringify(userProfile), JSON.stringify({ source: 'api', version: '1.0' })]);
+    
+    // JSON functions
+    const result = db.get(`
+        SELECT 
+            json_data,
+            json_extract(json_data, '$.name') as name,
+            json_extract(json_data, '$.email') as email,
+            json_extract(json_data, '$.preferences.theme') as theme,
+            json_extract(json_data, '$.tags[0]') as first_tag,
+            json_array_length(json_extract(json_data, '$.tags')) as tag_count,
+            json_valid(json_data) as is_valid
+        FROM json_examples 
+        WHERE id = ?
+    `, [1]);
+    
+    console.log('JSON operations:', result);
+    
+    // Update JSON data
+    db.run(`
+        UPDATE json_examples 
+        SET json_data = json_set(json_data, '$.preferences.theme', ?)
+        WHERE id = ?
+    `, ['light', 1]);
+    
+    // Query JSON arrays
+    const usersWithTag = db.all(`
+        SELECT json_data
+        FROM json_examples
+        WHERE json_extract(json_data, '$.tags') LIKE '%developer%'
+    `);
+    
+    console.log('Users with developer tag:', usersWithTag);
+}
+
+// JSON validation
+function validateJsonData(data) {
+    const errors = [];
+    
+    try {
+        const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+        
+        if (parsed.name && typeof parsed.name !== 'string') {
+            errors.push('Name must be a string');
+        }
+        
+        if (parsed.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parsed.email)) {
+            errors.push('Invalid email format');
+        }
+        
+        if (parsed.preferences && typeof parsed.preferences !== 'object') {
+            errors.push('Preferences must be an object');
+        }
+        
+        if (parsed.tags && !Array.isArray(parsed.tags)) {
+            errors.push('Tags must be an array');
+        }
+        
+    } catch (error) {
+        errors.push('Invalid JSON format');
+    }
+    
+    return errors;
+}
+```
+
+```python Python
+import json
+
+# JSON operations
+def json_operations():
+    # Insert JSON data
+    user_profile = {
+        'name': 'John Doe',
+        'email': 'john@example.com',
+        'preferences': {
+            'theme': 'dark',
+            'notifications': True,
+            'language': 'en'
+        },
+        'tags': ['developer', 'javascript', 'python']
+    }
+    
+    db.execute('''
+        INSERT INTO json_examples (json_data, metadata)
+        VALUES (?, ?)
+    ''', (json.dumps(user_profile), json.dumps({'source': 'api', 'version': '1.0'})))
+    
+    # JSON functions
+    result = db.execute('''
+        SELECT 
+            json_data,
+            json_extract(json_data, '$.name') as name,
+            json_extract(json_data, '$.email') as email,
+            json_extract(json_data, '$.preferences.theme') as theme,
+            json_extract(json_data, '$.tags[0]') as first_tag,
+            json_array_length(json_extract(json_data, '$.tags')) as tag_count,
+            json_valid(json_data) as is_valid
+        FROM json_examples 
+        WHERE id = ?
+    ''', (1,)).fetchone()
+    
+    print('JSON operations:', result)
+    
+    # Update JSON data
+    db.execute('''
+        UPDATE json_examples 
+        SET json_data = json_set(json_data, '$.preferences.theme', ?)
+        WHERE id = ?
+    ''', ('light', 1))
+    
+    # Query JSON arrays
+    users_with_tag = db.execute('''
+        SELECT json_data
+        FROM json_examples
+        WHERE json_extract(json_data, '$.tags') LIKE '%developer%'
+    ''').fetchall()
+    
+    print('Users with developer tag:', users_with_tag)
+
+# JSON validation
+def validate_json_data(data):
+    import re
+    errors = []
+    
+    try:
+        parsed = json.loads(data) if isinstance(data, str) else data
+        
+        if parsed.get('name') and not isinstance(parsed['name'], str):
+            errors.append('Name must be a string')
+        
+        if parsed.get('email') and not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', parsed['email']):
+            errors.append('Invalid email format')
+        
+        if parsed.get('preferences') and not isinstance(parsed['preferences'], dict):
+            errors.append('Preferences must be an object')
+        
+        if parsed.get('tags') and not isinstance(parsed['tags'], list):
+            errors.append('Tags must be an array')
+        
+    except (json.JSONDecodeError, TypeError):
+        errors.append('Invalid JSON format')
+    
+    return errors
+```
+</CodeGroup>
+
+## Data Type Best Practices
+
+### Choosing the Right Data Type
+
+<CodeGroup>
+```javascript Node.js
+// Data type selection guidelines
+function selectDataType(fieldName, value, requirements) {
+    const recommendations = [];
+    
+    // Numeric types
+    if (typeof value === 'number') {
+        if (Number.isInteger(value)) {
+            if (value >= -128 && value <= 127) {
+                recommendations.push('TINYINT');
+            } else if (value >= -32768 && value <= 32767) {
+                recommendations.push('SMALLINT');
+            } else if (value >= -2147483648 && value <= 2147483647) {
+                recommendations.push('INTEGER');
+            } else {
+                recommendations.push('BIGINT');
+            }
+        } else {
+            recommendations.push('REAL or DECIMAL');
+        }
+    }
+    
+    // Text types
+    if (typeof value === 'string') {
+        if (value.length <= 255) {
+            recommendations.push('VARCHAR(255)');
+        } else {
+            recommendations.push('TEXT');
+        }
+    }
+    
+    // Date types
+    if (value instanceof Date) {
+        recommendations.push('DATETIME');
+    }
+    
+    // Boolean types
+    if (typeof value === 'boolean') {
+        recommendations.push('BOOLEAN or INTEGER');
+    }
+    
+    return recommendations;
+}
+
+// Schema optimization
+function optimizeSchema(tableName) {
+    const analysis = db.all(`
+        SELECT 
+            name,
+            type,
+            pk,
+            notnull,
+            dflt_value
+        FROM pragma_table_info(?)
+    `, [tableName]);
+    
+    const recommendations = [];
+    
+    analysis.forEach(column => {
+        if (column.type === 'TEXT' && column.name.includes('id')) {
+            recommendations.push({
+                column: column.name,
+                suggestion: 'Consider using INTEGER for ID columns'
+            });
+        }
+        
+        if (column.type === 'TEXT' && column.name.includes('email')) {
+            recommendations.push({
+                column: column.name,
+                suggestion: 'Add UNIQUE constraint for email columns'
+            });
+        }
+        
+        if (column.type === 'TEXT' && column.name.includes('status')) {
+            recommendations.push({
+                column: column.name,
+                suggestion: 'Consider using CHECK constraint for status values'
+            });
+        }
+    });
+    
+    return recommendations;
+}
+```
+
+```python Python
+# Data type selection guidelines
+def select_data_type(field_name, value, requirements):
+    recommendations = []
+    
+    # Numeric types
+    if isinstance(value, int):
+        if -128 <= value <= 127:
+            recommendations.append('TINYINT')
+        elif -32768 <= value <= 32767:
+            recommendations.append('SMALLINT')
+        elif -2147483648 <= value <= 2147483647:
+            recommendations.append('INTEGER')
+        else:
+            recommendations.append('BIGINT')
+    elif isinstance(value, float):
+        recommendations.append('REAL or DECIMAL')
+    
+    # Text types
+    if isinstance(value, str):
+        if len(value) <= 255:
+            recommendations.append('VARCHAR(255)')
+        else:
+            recommendations.append('TEXT')
+    
+    # Date types
+    if isinstance(value, datetime):
+        recommendations.append('DATETIME')
+    
+    # Boolean types
+    if isinstance(value, bool):
+        recommendations.append('BOOLEAN or INTEGER')
+    
+    return recommendations
+
+# Schema optimization
+def optimize_schema(table_name):
+    analysis = db.execute('''
+        SELECT 
+            name,
+            type,
+            pk,
+            notnull,
+            dflt_value
+        FROM pragma_table_info(?)
+    ''', (table_name,)).fetchall()
+    
+    recommendations = []
+    
+    for column in analysis:
+        if column[1] == 'TEXT' and 'id' in column[0]:
+            recommendations.append({
+                'column': column[0],
+                'suggestion': 'Consider using INTEGER for ID columns'
+            })
+        
+        if column[1] == 'TEXT' and 'email' in column[0]:
+            recommendations.append({
+                'column': column[0],
+                'suggestion': 'Add UNIQUE constraint for email columns'
+            })
+        
+        if column[1] == 'TEXT' and 'status' in column[0]:
+            recommendations.append({
+                'column': column[0],
+                'suggestion': 'Consider using CHECK constraint for status values'
+            })
+    
+    return recommendations
+```
+</CodeGroup>
+
+### Storage Optimization
+
+```sql
+-- Optimize storage with appropriate data types
+CREATE TABLE optimized_storage (
+    -- Use smallest appropriate integer type
+    id SMALLINT PRIMARY KEY,                    -- Instead of INTEGER for small datasets
+    status TINYINT DEFAULT 0,                   -- Instead of INTEGER for status flags
+    
+    -- Use appropriate text types
+    email VARCHAR(255) UNIQUE NOT NULL,         -- Instead of TEXT for fixed-length data
+    username VARCHAR(50) UNIQUE NOT NULL,      -- Limit length for usernames
+    bio TEXT,                                   -- Use TEXT for variable-length content
+    
+    -- Use appropriate numeric types
+    price DECIMAL(10,2) NOT NULL,              -- Fixed precision for currency
+    percentage DECIMAL(5,2) DEFAULT 0,         -- Limited precision for percentages
+    
+    -- Use appropriate date types
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_login DATETIME,
+    
+    -- Use appropriate binary types
+    avatar BLOB,                               -- For small binary data
+    file_hash BINARY(32) UNIQUE               -- Fixed-length hash
+);
+
+-- Create indexes on frequently queried columns
+CREATE INDEX idx_optimized_email ON optimized_storage(email);
+CREATE INDEX idx_optimized_status ON optimized_storage(status);
+CREATE INDEX idx_optimized_created ON optimized_storage(created_at);
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Choose Appropriate Types">
+    Select the smallest data type that can accommodate your data to optimize storage and performance.
+  </Step>
+  <Step title="Use Constraints">
+    Apply appropriate constraints (NOT NULL, UNIQUE, CHECK) to ensure data integrity.
+  </Step>
+  <Step title="Normalize Data">
+    Use proper normalization techniques to avoid data redundancy and maintain consistency.
+  </Step>
+  <Step title="Index Strategically">
+    Create indexes on frequently queried columns, but avoid over-indexing.
+  </Step>
+  <Step title="Validate Input">
+    Always validate data before inserting it into the database.
+  </Step>
+  <Step title="Use Prepared Statements">
+    Use prepared statements for better performance and security.
+  </Step>
+  <Step title="Consider Future Growth">
+    Plan for future data growth when choosing data types and constraints.
+  </Step>
+  <Step title="Document Schema">
+    Document your database schema and data type choices for future reference.
+  </Step>
+</Steps>
+
+<Note>
+Choosing the right data types is crucial for database performance and data integrity. Always consider your data requirements, storage constraints, and query patterns when designing your database schema.
+</Note>

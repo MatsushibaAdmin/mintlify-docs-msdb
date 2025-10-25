@@ -1,0 +1,1258 @@
+---
+title: "Performance"
+description: "Optimize MatsushibaDB performance with indexing, query optimization, caching, and monitoring techniques."
+---
+
+# Performance Optimization
+
+Maximize MatsushibaDB performance with advanced optimization techniques, monitoring, and best practices.
+
+## Indexing Strategies
+
+### Creating Effective Indexes
+
+```sql
+-- Single column indexes
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_created_at ON users(created_at);
+CREATE INDEX idx_posts_published ON posts(published);
+
+-- Composite indexes for multi-column queries
+CREATE INDEX idx_posts_author_date ON posts(author_id, created_at);
+CREATE INDEX idx_orders_customer_status ON orders(customer_id, status, created_at);
+
+-- Partial indexes for filtered queries
+CREATE INDEX idx_active_users ON users(email) WHERE status = 'active';
+CREATE INDEX idx_published_posts ON posts(created_at) WHERE published = 1;
+
+-- Covering indexes to avoid table lookups
+CREATE INDEX idx_posts_covering ON posts(author_id, published, created_at) 
+INCLUDE (title, content);
+
+-- Unique indexes for data integrity
+CREATE UNIQUE INDEX idx_users_username ON users(username);
+CREATE UNIQUE INDEX idx_users_email ON users(email);
+```
+
+### Index Analysis and Optimization
+
+<CodeGroup>
+```javascript Node.js
+// Analyze query performance
+function analyzeQuery(sql, params = []) {
+    try {
+        const explainQuery = `EXPLAIN QUERY PLAN ${sql}`;
+        const plan = db.all(explainQuery, params);
+        
+        console.log('Query Plan:', plan);
+        
+        // Check for full table scans
+        const hasTableScan = plan.some(step => 
+            step.detail.includes('SCAN TABLE') && 
+            !step.detail.includes('USING INDEX')
+        );
+        
+        if (hasTableScan) {
+            console.warn('Warning: Query may perform full table scan');
+        }
+        
+        return {
+            plan: plan,
+            hasTableScan: hasTableScan,
+            recommendations: generateIndexRecommendations(plan)
+        };
+    } catch (error) {
+        throw error;
+    }
+}
+
+// Generate index recommendations
+function generateIndexRecommendations(plan) {
+    const recommendations = [];
+    
+    plan.forEach(step => {
+        if (step.detail.includes('SCAN TABLE') && !step.detail.includes('USING INDEX')) {
+            const tableMatch = step.detail.match(/SCAN TABLE (\w+)/);
+            if (tableMatch) {
+                recommendations.push({
+                    type: 'missing_index',
+                    table: tableMatch[1],
+                    suggestion: `Consider creating an index on ${tableMatch[1]} for better performance`
+                });
+            }
+        }
+    });
+    
+    return recommendations;
+}
+
+// Index usage statistics
+function getIndexUsageStats() {
+    try {
+        const stats = db.all(`
+            SELECT 
+                name,
+                tbl_name,
+                sql,
+                CASE 
+                    WHEN name LIKE 'sqlite_autoindex_%' THEN 'auto'
+                    ELSE 'manual'
+                END as index_type
+            FROM sqlite_master 
+            WHERE type = 'index' 
+            AND name NOT LIKE 'sqlite_%'
+            ORDER BY tbl_name, name
+        `);
+        
+        return stats;
+    } catch (error) {
+        throw error;
+    }
+}
+```
+
+```python Python
+# Analyze query performance
+def analyze_query(sql, params=None):
+    try:
+        explain_query = f'EXPLAIN QUERY PLAN {sql}'
+        plan = db.execute(explain_query, params or []).fetchall()
+        
+        print('Query Plan:', plan)
+        
+        # Check for full table scans
+        has_table_scan = any(
+            'SCAN TABLE' in step[3] and 'USING INDEX' not in step[3]
+            for step in plan
+        )
+        
+        if has_table_scan:
+            print('Warning: Query may perform full table scan')
+        
+        return {
+            'plan': plan,
+            'has_table_scan': has_table_scan,
+            'recommendations': generate_index_recommendations(plan)
+        }
+    except Exception as e:
+        raise e
+
+# Generate index recommendations
+def generate_index_recommendations(plan):
+    recommendations = []
+    
+    for step in plan:
+        if 'SCAN TABLE' in step[3] and 'USING INDEX' not in step[3]:
+            import re
+            table_match = re.search(r'SCAN TABLE (\w+)', step[3])
+            if table_match:
+                recommendations.append({
+                    'type': 'missing_index',
+                    'table': table_match.group(1),
+                    'suggestion': f'Consider creating an index on {table_match.group(1)} for better performance'
+                })
+    
+    return recommendations
+
+# Index usage statistics
+def get_index_usage_stats():
+    try:
+        stats = db.execute('''
+            SELECT 
+                name,
+                tbl_name,
+                sql,
+                CASE 
+                    WHEN name LIKE 'sqlite_autoindex_%' THEN 'auto'
+                    ELSE 'manual'
+                END as index_type
+            FROM sqlite_master 
+            WHERE type = 'index' 
+            AND name NOT LIKE 'sqlite_%'
+            ORDER BY tbl_name, name
+        ''').fetchall()
+        
+        return stats
+    except Exception as e:
+        raise e
+```
+</CodeGroup>
+
+## Query Optimization
+
+### Prepared Statements
+
+<CodeGroup>
+```javascript Node.js
+// Use prepared statements for repeated queries
+class QueryOptimizer {
+    constructor(db) {
+        this.db = db;
+        this.preparedStatements = new Map();
+    }
+    
+    // Prepare statement with caching
+    prepare(sql) {
+        if (!this.preparedStatements.has(sql)) {
+            const stmt = this.db.prepare(sql);
+            this.preparedStatements.set(sql, stmt);
+        }
+        return this.preparedStatements.get(sql);
+    }
+    
+    // Execute prepared statement
+    execute(sql, params) {
+        const stmt = this.prepare(sql);
+        return stmt.run(params);
+    }
+    
+    // Get single record
+    get(sql, params) {
+        const stmt = this.prepare(sql);
+        return stmt.get(params);
+    }
+    
+    // Get all records
+    all(sql, params) {
+        const stmt = this.prepare(sql);
+        return stmt.all(params);
+    }
+    
+    // Clean up prepared statements
+    finalize() {
+        for (const stmt of this.preparedStatements.values()) {
+            stmt.finalize();
+        }
+        this.preparedStatements.clear();
+    }
+}
+
+// Usage example
+const optimizer = new QueryOptimizer(db);
+
+// These queries will reuse the same prepared statement
+const user1 = optimizer.get('SELECT * FROM users WHERE id = ?', [1]);
+const user2 = optimizer.get('SELECT * FROM users WHERE id = ?', [2]);
+const user3 = optimizer.get('SELECT * FROM users WHERE id = ?', [3]);
+```
+
+```python Python
+# Use prepared statements for repeated queries
+class QueryOptimizer:
+    def __init__(self, db):
+        self.db = db
+        self.prepared_statements = {}
+    
+    # Prepare statement with caching
+    def prepare(self, sql):
+        if sql not in self.prepared_statements:
+            self.prepared_statements[sql] = self.db.prepare(sql)
+        return self.prepared_statements[sql]
+    
+    # Execute prepared statement
+    def execute(self, sql, params):
+        stmt = self.prepare(sql)
+        return stmt.execute(params)
+    
+    # Get single record
+    def get(self, sql, params):
+        stmt = self.prepare(sql)
+        return stmt.fetchone(params)
+    
+    # Get all records
+    def all(self, sql, params):
+        stmt = self.prepare(sql)
+        return stmt.fetchall(params)
+    
+    # Clean up prepared statements
+    def close(self):
+        for stmt in self.prepared_statements.values():
+            stmt.close()
+        self.prepared_statements.clear()
+
+# Usage example
+optimizer = QueryOptimizer(db)
+
+# These queries will reuse the same prepared statement
+user1 = optimizer.get('SELECT * FROM users WHERE id = ?', (1,))
+user2 = optimizer.get('SELECT * FROM users WHERE id = ?', (2,))
+user3 = optimizer.get('SELECT * FROM users WHERE id = ?', (3,))
+```
+</CodeGroup>
+
+### Query Optimization Techniques
+
+<CodeGroup>
+```javascript Node.js
+// Pagination optimization
+function getUsersPaginated(page, pageSize) {
+    const offset = (page - 1) * pageSize;
+    
+    // Use LIMIT and OFFSET efficiently
+    return db.all(`
+        SELECT * FROM users 
+        ORDER BY created_at DESC 
+        LIMIT ? OFFSET ?
+    `, [pageSize, offset]);
+}
+
+// Cursor-based pagination (more efficient for large datasets)
+function getUsersCursor(cursor, pageSize) {
+    const whereClause = cursor ? 'WHERE id < ?' : '';
+    const params = cursor ? [cursor, pageSize] : [pageSize];
+    
+    return db.all(`
+        SELECT * FROM users 
+        ${whereClause}
+        ORDER BY id DESC 
+        LIMIT ?
+    `, params);
+}
+
+// Batch operations
+function batchInsertUsers(users) {
+    try {
+        db.run('BEGIN TRANSACTION');
+        
+        const stmt = db.prepare('INSERT INTO users (name, email, age) VALUES (?, ?, ?)');
+        
+        for (const user of users) {
+            stmt.run(user.name, user.email, user.age);
+        }
+        
+        stmt.finalize();
+        db.run('COMMIT');
+        
+        return { success: true, count: users.length };
+    } catch (error) {
+        db.run('ROLLBACK');
+        throw error;
+    }
+}
+
+// Query result caching
+class QueryCache {
+    constructor(ttl = 300000) { // 5 minutes default TTL
+        this.cache = new Map();
+        this.ttl = ttl;
+    }
+    
+    get(key) {
+        const item = this.cache.get(key);
+        if (item && Date.now() - item.timestamp < this.ttl) {
+            return item.data;
+        }
+        this.cache.delete(key);
+        return null;
+    }
+    
+    set(key, data) {
+        this.cache.set(key, {
+            data: data,
+            timestamp: Date.now()
+        });
+    }
+    
+    clear() {
+        this.cache.clear();
+    }
+}
+
+// Usage with caching
+const queryCache = new QueryCache();
+
+function getCachedUsers() {
+    const cacheKey = 'all_users';
+    let users = queryCache.get(cacheKey);
+    
+    if (!users) {
+        users = db.all('SELECT * FROM users ORDER BY created_at DESC');
+        queryCache.set(cacheKey, users);
+    }
+    
+    return users;
+}
+```
+
+```python Python
+# Pagination optimization
+def get_users_paginated(page, page_size):
+    offset = (page - 1) * page_size
+    
+    # Use LIMIT and OFFSET efficiently
+    return db.execute('''
+        SELECT * FROM users 
+        ORDER BY created_at DESC 
+        LIMIT ? OFFSET ?
+    ''', (page_size, offset)).fetchall()
+
+# Cursor-based pagination (more efficient for large datasets)
+def get_users_cursor(cursor, page_size):
+    if cursor:
+        where_clause = 'WHERE id < ?'
+        params = (cursor, page_size)
+    else:
+        where_clause = ''
+        params = (page_size,)
+    
+    return db.execute(f'''
+        SELECT * FROM users 
+        {where_clause}
+        ORDER BY id DESC 
+        LIMIT ?
+    ''', params).fetchall()
+
+# Batch operations
+def batch_insert_users(users):
+    try:
+        db.execute('BEGIN TRANSACTION')
+        
+        stmt = db.prepare('INSERT INTO users (name, email, age) VALUES (?, ?, ?)')
+        
+        for user in users:
+            stmt.execute(user['name'], user['email'], user['age'])
+        
+        stmt.close()
+        db.execute('COMMIT')
+        
+        return {'success': True, 'count': len(users)}
+    except Exception as e:
+        db.execute('ROLLBACK')
+        raise e
+
+# Query result caching
+import time
+
+class QueryCache:
+    def __init__(self, ttl=300):  # 5 minutes default TTL
+        self.cache = {}
+        self.ttl = ttl
+    
+    def get(self, key):
+        if key in self.cache:
+            item = self.cache[key]
+            if time.time() - item['timestamp'] < self.ttl:
+                return item['data']
+            else:
+                del self.cache[key]
+        return None
+    
+    def set(self, key, data):
+        self.cache[key] = {
+            'data': data,
+            'timestamp': time.time()
+        }
+    
+    def clear(self):
+        self.cache.clear()
+
+# Usage with caching
+query_cache = QueryCache()
+
+def get_cached_users():
+    cache_key = 'all_users'
+    users = query_cache.get(cache_key)
+    
+    if not users:
+        users = db.execute('SELECT * FROM users ORDER BY created_at DESC').fetchall()
+        query_cache.set(cache_key, users)
+    
+    return users
+```
+</CodeGroup>
+
+## Connection Pooling
+
+### Advanced Connection Pool Management
+
+<CodeGroup>
+```javascript Node.js
+const { MatsushibaPool } = require('matsushibadb');
+
+class AdvancedConnectionPool {
+    constructor(config) {
+        this.pool = new MatsushibaPool({
+            database: config.database,
+            min: config.minConnections || 5,
+            max: config.maxConnections || 20,
+            acquireTimeoutMillis: config.acquireTimeout || 30000,
+            createTimeoutMillis: config.createTimeout || 30000,
+            destroyTimeoutMillis: config.destroyTimeout || 5000,
+            idleTimeoutMillis: config.idleTimeout || 30000,
+            reapIntervalMillis: config.reapInterval || 1000,
+            createRetryIntervalMillis: config.createRetryInterval || 200,
+            propagateCreateError: false
+        });
+        
+        this.metrics = {
+            totalConnections: 0,
+            activeConnections: 0,
+            idleConnections: 0,
+            totalQueries: 0,
+            averageQueryTime: 0
+        };
+    }
+    
+    async executeQuery(sql, params = []) {
+        const startTime = Date.now();
+        const connection = await this.pool.acquire();
+        
+        try {
+            const result = await connection.all(sql, params);
+            this.updateMetrics(Date.now() - startTime);
+            return result;
+        } finally {
+            this.pool.release(connection);
+        }
+    }
+    
+    async executeTransaction(operations) {
+        const connection = await this.pool.acquire();
+        
+        try {
+            await connection.beginTransaction();
+            
+            const results = [];
+            for (const operation of operations) {
+                const result = await connection.run(operation.sql, operation.params);
+                results.push(result);
+            }
+            
+            await connection.commit();
+            return { success: true, results: results };
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            this.pool.release(connection);
+        }
+    }
+    
+    updateMetrics(queryTime) {
+        this.metrics.totalQueries++;
+        this.metrics.averageQueryTime = 
+            (this.metrics.averageQueryTime * (this.metrics.totalQueries - 1) + queryTime) / 
+            this.metrics.totalQueries;
+    }
+    
+    getMetrics() {
+        return {
+            ...this.metrics,
+            poolSize: this.pool.size,
+            availableConnections: this.pool.available,
+            waitingClients: this.pool.waiting
+        };
+    }
+    
+    async close() {
+        await this.pool.destroy();
+    }
+}
+
+// Usage
+const pool = new AdvancedConnectionPool({
+    database: 'app.db',
+    minConnections: 5,
+    maxConnections: 20
+});
+
+// Execute queries
+const users = await pool.executeQuery('SELECT * FROM users WHERE active = ?', [1]);
+
+// Execute transactions
+const result = await pool.executeTransaction([
+    { sql: 'INSERT INTO users (name, email) VALUES (?, ?)', params: ['John', 'john@example.com'] },
+    { sql: 'INSERT INTO profiles (user_id, bio) VALUES (?, ?)', params: [1, 'New user'] }
+]);
+```
+
+```python Python
+from matsushibadb import MatsushibaPool
+import asyncio
+import time
+
+class AdvancedConnectionPool:
+    def __init__(self, config):
+        self.pool = MatsushibaPool(
+            database=config['database'],
+            min_connections=config.get('min_connections', 5),
+            max_connections=config.get('max_connections', 20),
+            acquire_timeout=config.get('acquire_timeout', 30),
+            create_timeout=config.get('create_timeout', 30),
+            destroy_timeout=config.get('destroy_timeout', 5),
+            idle_timeout=config.get('idle_timeout', 30),
+            reap_interval=config.get('reap_interval', 1),
+            create_retry_interval=config.get('create_retry_interval', 0.2),
+            propagate_create_error=False
+        )
+        
+        self.metrics = {
+            'total_connections': 0,
+            'active_connections': 0,
+            'idle_connections': 0,
+            'total_queries': 0,
+            'average_query_time': 0
+        }
+    
+    async def execute_query(self, sql, params=None):
+        start_time = time.time()
+        
+        async with self.pool.get_connection() as conn:
+            result = await conn.execute(sql, params or []).fetchall()
+            self.update_metrics(time.time() - start_time)
+            return result
+    
+    async def execute_transaction(self, operations):
+        async with self.pool.get_connection() as conn:
+            try:
+                await conn.begin_transaction()
+                
+                results = []
+                for operation in operations:
+                    result = await conn.execute(operation['sql'], operation['params'])
+                    results.append(result)
+                
+                await conn.commit()
+                return {'success': True, 'results': results}
+            except Exception as e:
+                await conn.rollback()
+                raise e
+    
+    def update_metrics(self, query_time):
+        self.metrics['total_queries'] += 1
+        self.metrics['average_query_time'] = (
+            self.metrics['average_query_time'] * (self.metrics['total_queries'] - 1) + query_time
+        ) / self.metrics['total_queries']
+    
+    def get_metrics(self):
+        return {
+            **self.metrics,
+            'pool_size': self.pool.size,
+            'available_connections': self.pool.available,
+            'waiting_clients': self.pool.waiting
+        }
+    
+    async def close(self):
+        await self.pool.destroy()
+
+# Usage
+pool = AdvancedConnectionPool({
+    'database': 'app.db',
+    'min_connections': 5,
+    'max_connections': 20
+})
+
+# Execute queries
+users = await pool.execute_query('SELECT * FROM users WHERE active = ?', (1,))
+
+# Execute transactions
+result = await pool.execute_transaction([
+    {'sql': 'INSERT INTO users (name, email) VALUES (?, ?)', 'params': ('John', 'john@example.com')},
+    {'sql': 'INSERT INTO profiles (user_id, bio) VALUES (?, ?)', 'params': (1, 'New user')}
+])
+```
+</CodeGroup>
+
+## Performance Monitoring
+
+### Database Performance Metrics
+
+<CodeGroup>
+```javascript Node.js
+class PerformanceMonitor {
+    constructor(db) {
+        this.db = db;
+        this.metrics = {
+            queryCount: 0,
+            totalQueryTime: 0,
+            slowQueries: [],
+            connectionCount: 0,
+            cacheHits: 0,
+            cacheMisses: 0
+        };
+    }
+    
+    // Monitor query performance
+    async monitorQuery(sql, params, operation) {
+        const startTime = Date.now();
+        
+        try {
+            const result = await operation();
+            const executionTime = Date.now() - startTime;
+            
+            this.metrics.queryCount++;
+            this.metrics.totalQueryTime += executionTime;
+            
+            // Track slow queries
+            if (executionTime > 1000) { // Queries taking more than 1 second
+                this.metrics.slowQueries.push({
+                    sql: sql,
+                    params: params,
+                    executionTime: executionTime,
+                    timestamp: new Date()
+                });
+            }
+            
+            return result;
+        } catch (error) {
+            console.error('Query failed:', sql, error);
+            throw error;
+        }
+    }
+    
+    // Get performance statistics
+    getStats() {
+        const averageQueryTime = this.metrics.queryCount > 0 
+            ? this.metrics.totalQueryTime / this.metrics.queryCount 
+            : 0;
+        
+        return {
+            totalQueries: this.metrics.queryCount,
+            averageQueryTime: averageQueryTime,
+            slowQueriesCount: this.metrics.slowQueries.length,
+            cacheHitRate: this.metrics.cacheHits / (this.metrics.cacheHits + this.metrics.cacheMisses) || 0,
+            databaseSize: this.getDatabaseSize(),
+            indexUsage: this.getIndexUsageStats()
+        };
+    }
+    
+    // Get database size
+    getDatabaseSize() {
+        try {
+            const result = this.db.get(`
+                SELECT page_count * page_size as size
+                FROM pragma_page_count(), pragma_page_size()
+            `);
+            return result.size;
+        } catch (error) {
+            return 0;
+        }
+    }
+    
+    // Get index usage statistics
+    getIndexUsageStats() {
+        try {
+            return this.db.all(`
+                SELECT 
+                    name,
+                    tbl_name,
+                    sql
+                FROM sqlite_master 
+                WHERE type = 'index' 
+                AND name NOT LIKE 'sqlite_%'
+            `);
+        } catch (error) {
+            return [];
+        }
+    }
+    
+    // Analyze slow queries
+    analyzeSlowQueries() {
+        const analysis = {
+            mostCommonSlowQueries: {},
+            averageSlowQueryTime: 0,
+            recommendations: []
+        };
+        
+        if (this.metrics.slowQueries.length === 0) {
+            return analysis;
+        }
+        
+        // Group slow queries by SQL pattern
+        this.metrics.slowQueries.forEach(query => {
+            const pattern = query.sql.replace(/\d+/g, '?'); // Normalize parameters
+            if (!analysis.mostCommonSlowQueries[pattern]) {
+                analysis.mostCommonSlowQueries[pattern] = {
+                    count: 0,
+                    totalTime: 0,
+                    averageTime: 0
+                };
+            }
+            
+            analysis.mostCommonSlowQueries[pattern].count++;
+            analysis.mostCommonSlowQueries[pattern].totalTime += query.executionTime;
+        });
+        
+        // Calculate averages
+        Object.keys(analysis.mostCommonSlowQueries).forEach(pattern => {
+            const stats = analysis.mostCommonSlowQueries[pattern];
+            stats.averageTime = stats.totalTime / stats.count;
+        });
+        
+        // Generate recommendations
+        Object.keys(analysis.mostCommonSlowQueries).forEach(pattern => {
+            const stats = analysis.mostCommonSlowQueries[pattern];
+            if (stats.count > 5 && stats.averageTime > 500) {
+                analysis.recommendations.push({
+                    query: pattern,
+                    issue: 'Frequent slow query',
+                    suggestion: 'Consider adding indexes or optimizing the query'
+                });
+            }
+        });
+        
+        return analysis;
+    }
+}
+
+// Usage
+const monitor = new PerformanceMonitor(db);
+
+// Wrap queries with monitoring
+async function getUsers() {
+    return await monitor.monitorQuery(
+        'SELECT * FROM users WHERE active = ?',
+        [1],
+        () => db.all('SELECT * FROM users WHERE active = ?', [1])
+    );
+}
+```
+
+```python Python
+import time
+from collections import defaultdict
+
+class PerformanceMonitor:
+    def __init__(self, db):
+        self.db = db
+        self.metrics = {
+            'query_count': 0,
+            'total_query_time': 0,
+            'slow_queries': [],
+            'connection_count': 0,
+            'cache_hits': 0,
+            'cache_misses': 0
+        }
+    
+    # Monitor query performance
+    async def monitor_query(self, sql, params, operation):
+        start_time = time.time()
+        
+        try:
+            result = await operation()
+            execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+            
+            self.metrics['query_count'] += 1
+            self.metrics['total_query_time'] += execution_time
+            
+            # Track slow queries
+            if execution_time > 1000:  # Queries taking more than 1 second
+                self.metrics['slow_queries'].append({
+                    'sql': sql,
+                    'params': params,
+                    'execution_time': execution_time,
+                    'timestamp': time.time()
+                })
+            
+            return result
+        except Exception as e:
+            print(f'Query failed: {sql}, {e}')
+            raise e
+    
+    # Get performance statistics
+    def get_stats(self):
+        average_query_time = (
+            self.metrics['total_query_time'] / self.metrics['query_count']
+            if self.metrics['query_count'] > 0 else 0
+        )
+        
+        return {
+            'total_queries': self.metrics['query_count'],
+            'average_query_time': average_query_time,
+            'slow_queries_count': len(self.metrics['slow_queries']),
+            'cache_hit_rate': (
+                self.metrics['cache_hits'] / (self.metrics['cache_hits'] + self.metrics['cache_misses'])
+                if (self.metrics['cache_hits'] + self.metrics['cache_misses']) > 0 else 0
+            ),
+            'database_size': self.get_database_size(),
+            'index_usage': self.get_index_usage_stats()
+        }
+    
+    # Get database size
+    def get_database_size(self):
+        try:
+            result = self.db.execute('''
+                SELECT page_count * page_size as size
+                FROM pragma_page_count(), pragma_page_size()
+            ''').fetchone()
+            return result[0] if result else 0
+        except Exception as e:
+            return 0
+    
+    # Get index usage statistics
+    def get_index_usage_stats(self):
+        try:
+            return self.db.execute('''
+                SELECT 
+                    name,
+                    tbl_name,
+                    sql
+                FROM sqlite_master 
+                WHERE type = 'index' 
+                AND name NOT LIKE 'sqlite_%'
+            ''').fetchall()
+        except Exception as e:
+            return []
+    
+    # Analyze slow queries
+    def analyze_slow_queries(self):
+        analysis = {
+            'most_common_slow_queries': {},
+            'average_slow_query_time': 0,
+            'recommendations': []
+        }
+        
+        if not self.metrics['slow_queries']:
+            return analysis
+        
+        # Group slow queries by SQL pattern
+        for query in self.metrics['slow_queries']:
+            import re
+            pattern = re.sub(r'\d+', '?', query['sql'])  # Normalize parameters
+            if pattern not in analysis['most_common_slow_queries']:
+                analysis['most_common_slow_queries'][pattern] = {
+                    'count': 0,
+                    'total_time': 0,
+                    'average_time': 0
+                }
+            
+            analysis['most_common_slow_queries'][pattern]['count'] += 1
+            analysis['most_common_slow_queries'][pattern]['total_time'] += query['execution_time']
+        
+        # Calculate averages
+        for pattern in analysis['most_common_slow_queries']:
+            stats = analysis['most_common_slow_queries'][pattern]
+            stats['average_time'] = stats['total_time'] / stats['count']
+        
+        # Generate recommendations
+        for pattern in analysis['most_common_slow_queries']:
+            stats = analysis['most_common_slow_queries'][pattern]
+            if stats['count'] > 5 and stats['average_time'] > 500:
+                analysis['recommendations'].append({
+                    'query': pattern,
+                    'issue': 'Frequent slow query',
+                    'suggestion': 'Consider adding indexes or optimizing the query'
+                })
+        
+        return analysis
+
+# Usage
+monitor = PerformanceMonitor(db)
+
+# Wrap queries with monitoring
+async def get_users():
+    return await monitor.monitor_query(
+        'SELECT * FROM users WHERE active = ?',
+        (1,),
+        lambda: db.execute('SELECT * FROM users WHERE active = ?', (1,)).fetchall()
+    )
+```
+</CodeGroup>
+
+## Memory Optimization
+
+### Memory Management Techniques
+
+<CodeGroup>
+```javascript Node.js
+// Memory-efficient data processing
+class MemoryOptimizer {
+    constructor(db) {
+        this.db = db;
+        this.batchSize = 1000; // Process in batches
+    }
+    
+    // Process large datasets in chunks
+    async processLargeDataset(sql, params, processor) {
+        const totalCount = this.db.get(`SELECT COUNT(*) as count FROM (${sql})`, params).count;
+        let processed = 0;
+        
+        while (processed < totalCount) {
+            const batch = this.db.all(`
+                ${sql} 
+                LIMIT ? OFFSET ?
+            `, [...params, this.batchSize, processed]);
+            
+            await processor(batch);
+            processed += batch.length;
+            
+            // Force garbage collection if available
+            if (global.gc) {
+                global.gc();
+            }
+        }
+    }
+    
+    // Stream processing for very large datasets
+    async streamProcess(sql, params, processor) {
+        const stmt = this.db.prepare(sql);
+        
+        return new Promise((resolve, reject) => {
+            stmt.each(
+                params,
+                (row) => {
+                    try {
+                        processor(row);
+                    } catch (error) {
+                        reject(error);
+                    }
+                },
+                (err, count) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(count);
+                    }
+                    stmt.finalize();
+                }
+            );
+        });
+    }
+    
+    // Optimize database settings for memory
+    optimizeMemorySettings() {
+        // Set cache size based on available memory
+        const cacheSize = Math.min(2000, Math.floor(process.memoryUsage().heapTotal / 1024 / 1024));
+        
+        this.db.run(`PRAGMA cache_size = ${cacheSize}`);
+        this.db.run('PRAGMA temp_store = MEMORY');
+        this.db.run('PRAGMA mmap_size = 268435456'); // 256MB
+    }
+}
+
+// Usage
+const optimizer = new MemoryOptimizer(db);
+optimizer.optimizeMemorySettings();
+
+// Process large user dataset
+await optimizer.processLargeDataset(
+    'SELECT * FROM users WHERE created_at > ?',
+    ['2024-01-01'],
+    async (batch) => {
+        // Process batch
+        console.log(`Processing ${batch.length} users`);
+        // ... processing logic
+    }
+);
+```
+
+```python Python
+import gc
+
+# Memory-efficient data processing
+class MemoryOptimizer:
+    def __init__(self, db):
+        self.db = db
+        self.batch_size = 1000  # Process in batches
+    
+    # Process large datasets in chunks
+    async def process_large_dataset(self, sql, params, processor):
+        total_count = self.db.execute(f'SELECT COUNT(*) as count FROM ({sql})', params).fetchone()[0]
+        processed = 0
+        
+        while processed < total_count:
+            batch = self.db.execute(f'{sql} LIMIT ? OFFSET ?', (*params, self.batch_size, processed)).fetchall()
+            
+            await processor(batch)
+            processed += len(batch)
+            
+            # Force garbage collection
+            gc.collect()
+    
+    # Stream processing for very large datasets
+    def stream_process(self, sql, params, processor):
+        stmt = self.db.prepare(sql)
+        
+        try:
+            for row in stmt:
+                processor(row)
+        finally:
+            stmt.close()
+    
+    # Optimize database settings for memory
+    def optimize_memory_settings(self):
+        import psutil
+        
+        # Set cache size based on available memory
+        available_memory = psutil.virtual_memory().available
+        cache_size = min(2000, available_memory // (1024 * 1024))  # Convert to MB
+        
+        self.db.execute(f'PRAGMA cache_size = {cache_size}')
+        self.db.execute('PRAGMA temp_store = MEMORY')
+        self.db.execute('PRAGMA mmap_size = 268435456')  # 256MB
+
+# Usage
+optimizer = MemoryOptimizer(db)
+optimizer.optimize_memory_settings()
+
+# Process large user dataset
+async def process_users(batch):
+    print(f'Processing {len(batch)} users')
+    # ... processing logic
+
+await optimizer.process_large_dataset(
+    'SELECT * FROM users WHERE created_at > ?',
+    ('2024-01-01',),
+    process_users
+)
+```
+</CodeGroup>
+
+## Performance Tuning
+
+### Database Configuration Optimization
+
+```sql
+-- Performance optimization settings
+PRAGMA journal_mode = WAL;           -- Better concurrency
+PRAGMA synchronous = NORMAL;          -- Balance between safety and speed
+PRAGMA cache_size = 2000;            -- Increase cache size
+PRAGMA temp_store = MEMORY;          -- Use memory for temp tables
+PRAGMA mmap_size = 268435456;        -- 256MB memory mapping
+PRAGMA optimize;                     -- Run query optimizer
+
+-- Analyze tables for better query planning
+ANALYZE;
+
+-- Vacuum database to reclaim space
+VACUUM;
+
+-- Check database integrity
+PRAGMA integrity_check;
+```
+
+### Application-Level Optimizations
+
+<CodeGroup>
+```javascript Node.js
+// Connection pooling configuration
+const poolConfig = {
+    min: 5,                    // Minimum connections
+    max: 20,                   // Maximum connections
+    acquireTimeoutMillis: 30000,
+    createTimeoutMillis: 30000,
+    destroyTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    reapIntervalMillis: 1000,
+    createRetryIntervalMillis: 200
+};
+
+// Query optimization middleware
+function queryOptimizer(req, res, next) {
+    const originalSend = res.send;
+    
+    res.send = function(data) {
+        // Log slow responses
+        const responseTime = Date.now() - req.startTime;
+        if (responseTime > 1000) {
+            console.warn(`Slow response: ${req.method} ${req.path} - ${responseTime}ms`);
+        }
+        
+        originalSend.call(this, data);
+    };
+    
+    next();
+}
+
+// Database health check
+async function healthCheck() {
+    try {
+        const startTime = Date.now();
+        await db.get('SELECT 1');
+        const responseTime = Date.now() - startTime;
+        
+        return {
+            status: 'healthy',
+            responseTime: responseTime,
+            timestamp: new Date().toISOString()
+        };
+    } catch (error) {
+        return {
+            status: 'unhealthy',
+            error: error.message,
+            timestamp: new Date().toISOString()
+        };
+    }
+}
+```
+
+```python Python
+# Connection pooling configuration
+pool_config = {
+    'min_connections': 5,
+    'max_connections': 20,
+    'acquire_timeout': 30,
+    'create_timeout': 30,
+    'destroy_timeout': 5,
+    'idle_timeout': 30,
+    'reap_interval': 1,
+    'create_retry_interval': 0.2
+}
+
+# Query optimization middleware
+def query_optimizer(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        response_time = (time.time() - start_time) * 1000
+        
+        # Log slow responses
+        if response_time > 1000:
+            print(f'Slow response: {func.__name__} - {response_time:.2f}ms')
+        
+        return result
+    return wrapper
+
+# Database health check
+async def health_check():
+    try:
+        start_time = time.time()
+        db.execute('SELECT 1').fetchone()
+        response_time = (time.time() - start_time) * 1000
+        
+        return {
+            'status': 'healthy',
+            'response_time': response_time,
+            'timestamp': time.time()
+        }
+    except Exception as e:
+        return {
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': time.time()
+        }
+```
+</CodeGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Create Appropriate Indexes">
+    Create indexes on frequently queried columns and composite indexes for multi-column queries.
+  </Step>
+  <Step title="Use Prepared Statements">
+    Always use prepared statements for repeated queries to improve performance and security.
+  </Step>
+  <Step title="Implement Connection Pooling">
+    Use connection pooling for production applications to manage database connections efficiently.
+  </Step>
+  <Step title="Monitor Performance">
+    Implement comprehensive performance monitoring to identify bottlenecks and optimize accordingly.
+  </Step>
+  <Step title="Optimize Queries">
+    Use EXPLAIN QUERY PLAN to analyze and optimize query performance.
+  </Step>
+  <Step title="Use Pagination">
+    Implement proper pagination for large result sets to avoid memory issues.
+  </Step>
+  <Step title="Cache Frequently Used Data">
+    Implement caching strategies for frequently accessed data to reduce database load.
+  </Step>
+  <Step title="Regular Maintenance">
+    Perform regular database maintenance including VACUUM and ANALYZE operations.
+  </Step>
+</Steps>
+
+<Note>
+Performance optimization is an ongoing process. Regularly monitor your database performance, analyze slow queries, and implement optimizations based on your specific use case and data patterns.
+</Note>

@@ -1,0 +1,1128 @@
+---
+title: "Cloud Installation"
+description: "Deploy MatsushibaDB on major cloud platforms including AWS, Google Cloud, Azure, and DigitalOcean with managed services and auto-scaling."
+---
+
+# Cloud Installation
+
+Deploy MatsushibaDB on major cloud platforms with managed services, auto-scaling, and enterprise-grade infrastructure.
+
+## AWS Deployment
+
+### Amazon ECS (Elastic Container Service)
+
+```yaml
+# aws/ecs-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: matsushiba-ecs-service
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8000
+  selector:
+    app: matsushiba-db
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matsushiba-ecs-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: matsushiba-db
+  template:
+    metadata:
+      labels:
+        app: matsushiba-db
+    spec:
+      containers:
+      - name: matsushiba-db
+        image: matsushibadb/matsushibadb:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_PATH
+          value: "/data/production.db"
+        - name: AWS_REGION
+          value: "us-west-2"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: efs-volume
+          mountPath: /data
+      volumes:
+      - name: efs-volume
+        persistentVolumeClaim:
+          claimName: efs-claim
+```
+
+### Amazon RDS Integration
+
+```yaml
+# aws/rds-integration.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: matsushiba-rds-config
+data:
+  RDS_ENDPOINT: "matsushiba-db.cluster-xyz.us-west-2.rds.amazonaws.com"
+  RDS_PORT: "5432"
+  RDS_DATABASE: "matsushiba_production"
+  RDS_USERNAME: "matsushiba_user"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: matsushiba-rds-secret
+type: Opaque
+data:
+  RDS_PASSWORD: <base64-encoded-password>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matsushiba-rds-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: matsushiba-rds-app
+  template:
+    metadata:
+      labels:
+        app: matsushiba-rds-app
+    spec:
+      containers:
+      - name: matsushiba-app
+        image: matsushibadb/matsushibadb:latest
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_TYPE
+          value: "postgresql"
+        - name: DATABASE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-rds-config
+              key: RDS_ENDPOINT
+        - name: DATABASE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-rds-config
+              key: RDS_PORT
+        - name: DATABASE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-rds-config
+              key: RDS_DATABASE
+        - name: DATABASE_USER
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-rds-config
+              key: RDS_USERNAME
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: matsushiba-rds-secret
+              key: RDS_PASSWORD
+```
+
+### AWS Lambda Integration
+
+```javascript
+// aws/lambda-handler.js
+const MatsushibaDB = require('matsushibadb');
+
+exports.handler = async (event, context) => {
+  const db = new MatsushibaDB('/tmp/lambda-db.db');
+  
+  try {
+    // Initialize database
+    await db.run(`
+      CREATE TABLE IF NOT EXISTS lambda_data (
+        id INTEGER PRIMARY KEY,
+        data TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Process event
+    const { action, data } = JSON.parse(event.body);
+    
+    switch (action) {
+      case 'create':
+        const result = await db.run(
+          'INSERT INTO lambda_data (data) VALUES (?)',
+          [JSON.stringify(data)]
+        );
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            id: result.lastInsertRowid,
+            message: 'Data created successfully'
+          })
+        };
+      
+      case 'read':
+        const records = await db.all('SELECT * FROM lambda_data ORDER BY timestamp DESC LIMIT 10');
+        return {
+          statusCode: 200,
+          body: JSON.stringify(records)
+        };
+      
+      default:
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ error: 'Invalid action' })
+        };
+    }
+  } catch (error) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: error.message })
+    };
+  } finally {
+    await db.close();
+  }
+};
+```
+
+## Google Cloud Platform
+
+### Google Cloud Run
+
+```yaml
+# gcp/cloud-run.yaml
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: matsushiba-cloud-run
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/execution-environment: gen2
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: "100"
+        autoscaling.knative.dev/minScale: "1"
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 1000
+      timeoutSeconds: 300
+      containers:
+      - image: gcr.io/PROJECT_ID/matsushibadb:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_PATH
+          value: "/tmp/cloud-run.db"
+        - name: GOOGLE_CLOUD_PROJECT
+          value: "PROJECT_ID"
+        resources:
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+          requests:
+            cpu: "1"
+            memory: "1Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+```
+
+### Google Cloud SQL Integration
+
+```yaml
+# gcp/cloud-sql.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: matsushiba-cloud-sql-config
+data:
+  CLOUD_SQL_CONNECTION_NAME: "PROJECT_ID:REGION:INSTANCE_NAME"
+  DATABASE_NAME: "matsushiba_production"
+  DATABASE_USER: "matsushiba_user"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: matsushiba-cloud-sql-secret
+type: Opaque
+data:
+  DATABASE_PASSWORD: <base64-encoded-password>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matsushiba-cloud-sql-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: matsushiba-cloud-sql-app
+  template:
+    metadata:
+      labels:
+        app: matsushiba-cloud-sql-app
+    spec:
+      containers:
+      - name: matsushiba-app
+        image: gcr.io/PROJECT_ID/matsushibadb:latest
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_TYPE
+          value: "cloud-sql"
+        - name: CLOUD_SQL_CONNECTION_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-cloud-sql-config
+              key: CLOUD_SQL_CONNECTION_NAME
+        - name: DATABASE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-cloud-sql-config
+              key: DATABASE_NAME
+        - name: DATABASE_USER
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-cloud-sql-config
+              key: DATABASE_USER
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: matsushiba-cloud-sql-secret
+              key: DATABASE_PASSWORD
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+```
+
+### Google Cloud Functions
+
+```javascript
+// gcp/cloud-function.js
+const MatsushibaDB = require('matsushibadb');
+
+exports.matsushibaFunction = async (req, res) => {
+  const db = new MatsushibaDB('/tmp/function-db.db');
+  
+  try {
+    // Initialize database
+    await db.run(`
+      CREATE TABLE IF NOT EXISTS function_data (
+        id INTEGER PRIMARY KEY,
+        data TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Process request
+    const { method, path, body } = req;
+    
+    switch (method) {
+      case 'GET':
+        if (path === '/data') {
+          const records = await db.all('SELECT * FROM function_data ORDER BY timestamp DESC LIMIT 10');
+          res.status(200).json(records);
+        } else {
+          res.status(404).json({ error: 'Not found' });
+        }
+        break;
+      
+      case 'POST':
+        if (path === '/data') {
+          const result = await db.run(
+            'INSERT INTO function_data (data) VALUES (?)',
+            [JSON.stringify(body)]
+          );
+          res.status(201).json({
+            id: result.lastInsertRowid,
+            message: 'Data created successfully'
+          });
+        } else {
+          res.status(404).json({ error: 'Not found' });
+        }
+        break;
+      
+      default:
+        res.status(405).json({ error: 'Method not allowed' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  } finally {
+    await db.close();
+  }
+};
+```
+
+## Microsoft Azure
+
+### Azure Container Instances
+
+```yaml
+# azure/container-instance.yaml
+apiVersion: 2019-12-01
+location: eastus
+name: matsushiba-aci
+properties:
+  containers:
+  - name: matsushiba-app
+    properties:
+      image: your-registry.azurecr.io/matsushibadb:latest
+      ports:
+      - port: 8000
+        protocol: TCP
+      environmentVariables:
+      - name: NODE_ENV
+        value: production
+      - name: DATABASE_PATH
+        value: /data/production.db
+      - name: AZURE_REGION
+        value: eastus
+      resources:
+        requests:
+          cpu: 1
+          memoryInGb: 1
+        limits:
+          cpu: 2
+          memoryInGb: 2
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 8000
+        initialDelaySeconds: 30
+        periodSeconds: 10
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 8000
+        initialDelaySeconds: 5
+        periodSeconds: 5
+  osType: Linux
+  restartPolicy: Always
+  ipAddress:
+    type: Public
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443
+  volumes:
+  - name: data
+    azureFile:
+      shareName: matsushiba-data
+      storageAccountName: yourstorageaccount
+      storageAccountKey: your-storage-key
+```
+
+### Azure Database Integration
+
+```yaml
+# azure/database-integration.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: matsushiba-azure-db-config
+data:
+  AZURE_DB_SERVER: "matsushiba-server.database.windows.net"
+  AZURE_DB_PORT: "1433"
+  AZURE_DB_NAME: "matsushiba_production"
+  AZURE_DB_USER: "matsushiba_user"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: matsushiba-azure-db-secret
+type: Opaque
+data:
+  AZURE_DB_PASSWORD: <base64-encoded-password>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matsushiba-azure-db-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: matsushiba-azure-db-app
+  template:
+    metadata:
+      labels:
+        app: matsushiba-azure-db-app
+    spec:
+      containers:
+      - name: matsushiba-app
+        image: your-registry.azurecr.io/matsushibadb:latest
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_TYPE
+          value: "azure-sql"
+        - name: DATABASE_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-azure-db-config
+              key: AZURE_DB_SERVER
+        - name: DATABASE_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-azure-db-config
+              key: AZURE_DB_PORT
+        - name: DATABASE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-azure-db-config
+              key: AZURE_DB_NAME
+        - name: DATABASE_USER
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-azure-db-config
+              key: AZURE_DB_USER
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: matsushiba-azure-db-secret
+              key: AZURE_DB_PASSWORD
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+```
+
+### Azure Functions
+
+```javascript
+// azure/azure-function.js
+const MatsushibaDB = require('matsushibadb');
+
+module.exports = async function (context, req) {
+  const db = new MatsushibaDB('/tmp/azure-function-db.db');
+  
+  try {
+    // Initialize database
+    await db.run(`
+      CREATE TABLE IF NOT EXISTS azure_data (
+        id INTEGER PRIMARY KEY,
+        data TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Process request
+    const { method, url } = req;
+    
+    switch (method) {
+      case 'GET':
+        if (url.includes('/data')) {
+          const records = await db.all('SELECT * FROM azure_data ORDER BY timestamp DESC LIMIT 10');
+          context.res = {
+            status: 200,
+            body: records
+          };
+        } else {
+          context.res = {
+            status: 404,
+            body: { error: 'Not found' }
+          };
+        }
+        break;
+      
+      case 'POST':
+        if (url.includes('/data')) {
+          const result = await db.run(
+            'INSERT INTO azure_data (data) VALUES (?)',
+            [JSON.stringify(req.body)]
+          );
+          context.res = {
+            status: 201,
+            body: {
+              id: result.lastInsertRowid,
+              message: 'Data created successfully'
+            }
+          };
+        } else {
+          context.res = {
+            status: 404,
+            body: { error: 'Not found' }
+          };
+        }
+        break;
+      
+      default:
+        context.res = {
+          status: 405,
+          body: { error: 'Method not allowed' }
+        };
+    }
+  } catch (error) {
+    context.res = {
+      status: 500,
+      body: { error: error.message }
+    };
+  } finally {
+    await db.close();
+  }
+};
+```
+
+## DigitalOcean
+
+### DigitalOcean App Platform
+
+```yaml
+# digitalocean/app-platform.yaml
+name: matsushiba-app
+services:
+- name: matsushiba-db
+  source_dir: /
+  github:
+    repo: your-username/matsushiba-app
+    branch: main
+  run_command: npm start
+  environment_slug: node-js
+  instance_count: 3
+  instance_size_slug: basic-xxs
+  http_port: 8000
+  envs:
+  - key: NODE_ENV
+    value: production
+  - key: DATABASE_PATH
+    value: /data/production.db
+  - key: PORT
+    value: "8000"
+  health_check:
+    http_path: /health
+  routes:
+  - path: /
+  alerts:
+  - rule: CPU_UTILIZATION
+    disabled: false
+    threshold: 80
+  - rule: MEM_UTILIZATION
+    disabled: false
+    threshold: 80
+databases:
+- name: matsushiba-db
+  engine: POSTGRES
+  version: "13"
+  size: db-s-1vcpu-1gb
+  num_nodes: 1
+```
+
+### DigitalOcean Kubernetes
+
+```yaml
+# digitalocean/kubernetes.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: matsushiba
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matsushiba-app
+  namespace: matsushiba
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: matsushiba-app
+  template:
+    metadata:
+      labels:
+        app: matsushiba-app
+    spec:
+      containers:
+      - name: matsushiba-app
+        image: matsushibadb/matsushibadb:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_PATH
+          value: "/data/production.db"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: data-volume
+          mountPath: /data
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: matsushiba-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: matsushiba-service
+  namespace: matsushiba
+spec:
+  selector:
+    app: matsushiba-app
+  ports:
+  - port: 80
+    targetPort: 8000
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: matsushiba-pvc
+  namespace: matsushiba
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: do-block-storage
+```
+
+## Cloudflare Workers
+
+### Cloudflare Workers Integration
+
+```javascript
+// cloudflare/worker.js
+import { MatsushibaDB } from 'matsushibadb';
+
+export default {
+  async fetch(request, env, ctx) {
+    const db = new MatsushibaDB(':memory:'); // In-memory for Workers
+    
+    try {
+      // Initialize database
+      await db.run(`
+        CREATE TABLE IF NOT EXISTS worker_data (
+          id INTEGER PRIMARY KEY,
+          data TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      
+      // Process request
+      const { method, url } = request;
+      const urlObj = new URL(url);
+      
+      switch (method) {
+        case 'GET':
+          if (urlObj.pathname === '/data') {
+            const records = await db.all('SELECT * FROM worker_data ORDER BY timestamp DESC LIMIT 10');
+            return new Response(JSON.stringify(records), {
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          break;
+        
+        case 'POST':
+          if (urlObj.pathname === '/data') {
+            const body = await request.json();
+            const result = await db.run(
+              'INSERT INTO worker_data (data) VALUES (?)',
+              [JSON.stringify(body)]
+            );
+            return new Response(JSON.stringify({
+              id: result.lastInsertRowid,
+              message: 'Data created successfully'
+            }), {
+              status: 201,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          break;
+      }
+      
+      return new Response('Not found', { status: 404 });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } finally {
+      await db.close();
+    }
+  }
+};
+```
+
+## Vercel
+
+### Vercel Serverless Functions
+
+```javascript
+// vercel/api/matsushiba.js
+const MatsushibaDB = require('matsushibadb');
+
+export default async function handler(req, res) {
+  const db = new MatsushibaDB('/tmp/vercel-db.db');
+  
+  try {
+    // Initialize database
+    await db.run(`
+      CREATE TABLE IF NOT EXISTS vercel_data (
+        id INTEGER PRIMARY KEY,
+        data TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Process request
+    const { method, query, body } = req;
+    
+    switch (method) {
+      case 'GET':
+        if (query.action === 'list') {
+          const records = await db.all('SELECT * FROM vercel_data ORDER BY timestamp DESC LIMIT 10');
+          res.status(200).json(records);
+        } else {
+          res.status(404).json({ error: 'Not found' });
+        }
+        break;
+      
+      case 'POST':
+        if (query.action === 'create') {
+          const result = await db.run(
+            'INSERT INTO vercel_data (data) VALUES (?)',
+            [JSON.stringify(body)]
+          );
+          res.status(201).json({
+            id: result.lastInsertRowid,
+            message: 'Data created successfully'
+          });
+        } else {
+          res.status(404).json({ error: 'Not found' });
+        }
+        break;
+      
+      default:
+        res.status(405).json({ error: 'Method not allowed' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  } finally {
+    await db.close();
+  }
+}
+```
+
+## Netlify
+
+### Netlify Functions
+
+```javascript
+// netlify/functions/matsushiba.js
+const MatsushibaDB = require('matsushibadb');
+
+exports.handler = async (event, context) => {
+  const db = new MatsushibaDB('/tmp/netlify-db.db');
+  
+  try {
+    // Initialize database
+    await db.run(`
+      CREATE TABLE IF NOT EXISTS netlify_data (
+        id INTEGER PRIMARY KEY,
+        data TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Process request
+    const { httpMethod, path, body } = event;
+    
+    switch (httpMethod) {
+      case 'GET':
+        if (path === '/data') {
+          const records = await db.all('SELECT * FROM netlify_data ORDER BY timestamp DESC LIMIT 10');
+          return {
+            statusCode: 200,
+            body: JSON.stringify(records)
+          };
+        }
+        break;
+      
+      case 'POST':
+        if (path === '/data') {
+          const result = await db.run(
+            'INSERT INTO netlify_data (data) VALUES (?)',
+            [JSON.stringify(JSON.parse(body))]
+          );
+          return {
+            statusCode: 201,
+            body: JSON.stringify({
+              id: result.lastInsertRowid,
+              message: 'Data created successfully'
+            })
+          };
+        }
+        break;
+    }
+    
+    return {
+      statusCode: 404,
+      body: JSON.stringify({ error: 'Not found' })
+    };
+  } catch (error) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: error.message })
+    };
+  } finally {
+    await db.close();
+  }
+};
+```
+
+## Auto-Scaling Configuration
+
+### Horizontal Pod Autoscaler
+
+```yaml
+# autoscaling/hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: matsushiba-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: matsushiba-app
+  minReplicas: 3
+  maxReplicas: 50
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: http_requests_per_second
+      target:
+        type: AverageValue
+        averageValue: "100"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 5
+        periodSeconds: 60
+```
+
+### Vertical Pod Autoscaler
+
+```yaml
+# autoscaling/vpa.yaml
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: matsushiba-vpa
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: matsushiba-app
+  updatePolicy:
+    updateMode: "Auto"
+  resourcePolicy:
+    containerPolicies:
+    - containerName: matsushiba-app
+      minAllowed:
+        cpu: 100m
+        memory: 128Mi
+      maxAllowed:
+        cpu: 2
+        memory: 4Gi
+      controlledResources: ["cpu", "memory"]
+```
+
+## Monitoring and Observability
+
+### CloudWatch Integration (AWS)
+
+```yaml
+# monitoring/cloudwatch.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudwatch-config
+data:
+  cloudwatch-config.yaml: |
+    region: us-west-2
+    log_group_name: /aws/eks/matsushiba
+    log_stream_name: matsushiba-app
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cloudwatch-agent
+spec:
+  selector:
+    matchLabels:
+      name: cloudwatch-agent
+  template:
+    metadata:
+      labels:
+        name: cloudwatch-agent
+    spec:
+      containers:
+      - name: cloudwatch-agent
+        image: amazon/cloudwatch-agent:latest
+        volumeMounts:
+        - name: cloudwatch-config
+          mountPath: /opt/aws/amazon-cloudwatch-agent/etc
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+        - name: proc-stat
+          mountPath: /proc/stat
+        - name: sys
+          mountPath: /sys
+      volumes:
+      - name: cloudwatch-config
+        configMap:
+          name: cloudwatch-config
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+      - name: proc-stat
+        hostPath:
+          path: /proc/stat
+      - name: sys
+        hostPath:
+          path: /sys
+```
+
+### Google Cloud Monitoring
+
+```yaml
+# monitoring/gcp-monitoring.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gcp-monitoring-config
+data:
+  monitoring-config.yaml: |
+    project_id: PROJECT_ID
+    cluster_name: matsushiba-cluster
+    zone: us-central1-a
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gcp-monitoring-agent
+spec:
+  selector:
+    matchLabels:
+      name: gcp-monitoring-agent
+  template:
+    metadata:
+      labels:
+        name: gcp-monitoring-agent
+    spec:
+      containers:
+      - name: gcp-monitoring-agent
+        image: gcr.io/google-containers/monitoring-agent:latest
+        volumeMounts:
+        - name: gcp-monitoring-config
+          mountPath: /etc/gcp-monitoring
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+      volumes:
+      - name: gcp-monitoring-config
+        configMap:
+          name: gcp-monitoring-config
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Choose the Right Platform">
+    Select cloud platforms based on your specific requirements, budget, and team expertise.
+  </Step>
+  <Step title="Implement Auto-Scaling">
+    Configure horizontal and vertical pod autoscaling for optimal resource utilization.
+  </Step>
+  <Step title="Use Managed Services">
+    Leverage managed database services for better reliability and maintenance.
+  </Step>
+  <Step title="Implement Monitoring">
+    Set up comprehensive monitoring and alerting across all cloud platforms.
+  </Step>
+  <Step title="Secure Your Deployment">
+    Use proper IAM roles, secrets management, and network security.
+  </Step>
+  <Step title="Optimize Costs">
+    Monitor resource usage and implement cost optimization strategies.
+  </Step>
+  <Step title="Plan for Disaster Recovery">
+    Implement backup and disaster recovery procedures across regions.
+  </Step>
+  <Step title="Use Infrastructure as Code">
+    Define all infrastructure using code for consistency and reproducibility.
+  </Step>
+</Steps>
+
+<Note>
+Cloud deployment provides excellent scalability and reliability. Always implement proper monitoring, security, and cost optimization strategies for production deployments.
+</Note>

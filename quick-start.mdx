@@ -1,0 +1,470 @@
+---
+title: "Quick Start"
+description: "Get up and running with MatsushibaDB in under 5 minutes. Perfect for developers who want to see results quickly."
+---
+
+# Quick Start Guide
+
+Get MatsushibaDB running in your project in under 5 minutes! This guide covers the fastest way to get started.
+
+## 1. Install MatsushibaDB
+
+Choose your platform and install:
+
+<CodeGroup>
+```bash npm
+npm install matsushibadb
+```
+
+```bash python
+pip install matsushibadb
+```
+
+```bash docker
+docker run -d -p 8000:8000 --name matsushiba-db matsushibadb/matsushibadb:latest
+```
+</CodeGroup>
+
+## 2. Create Your First Database
+
+<CodeGroup>
+```javascript Node.js
+const MatsushibaDB = require('matsushibadb');
+
+// Create database
+const db = new MatsushibaDB('quickstart.db');
+
+// Create table
+db.run(`
+  CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    completed BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+console.log('Database created successfully!');
+```
+
+```python Python
+import matsushibadb
+
+# Create database
+db = matsushibadb.MatsushibaDB('quickstart.db')
+
+# Create table
+db.execute('''
+    CREATE TABLE tasks (
+        id INTEGER PRIMARY KEY,
+        title TEXT NOT NULL,
+        completed BOOLEAN DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+''')
+
+print('Database created successfully!')
+```
+</CodeGroup>
+
+## 3. Add Some Data
+
+<CodeGroup>
+```javascript Node.js
+// Insert tasks
+const tasks = [
+  ['Learn MatsushibaDB', 0],
+  ['Build amazing app', 0],
+  ['Deploy to production', 0]
+];
+
+tasks.forEach(([title, completed]) => {
+  db.run('INSERT INTO tasks (title, completed) VALUES (?, ?)', [title, completed]);
+});
+
+console.log('Tasks added successfully!');
+```
+
+```python Python
+# Insert tasks
+tasks = [
+    ('Learn MatsushibaDB', 0),
+    ('Build amazing app', 0),
+    ('Deploy to production', 0)
+]
+
+for title, completed in tasks:
+    db.execute('INSERT INTO tasks (title, completed) VALUES (?, ?)', (title, completed))
+
+print('Tasks added successfully!')
+```
+</CodeGroup>
+
+## 4. Query Your Data
+
+<CodeGroup>
+```javascript Node.js
+// Get all tasks
+const allTasks = db.all('SELECT * FROM tasks');
+console.log('All tasks:', allTasks);
+
+// Get incomplete tasks
+const incompleteTasks = db.all('SELECT * FROM tasks WHERE completed = 0');
+console.log('Incomplete tasks:', incompleteTasks);
+
+// Get task count
+const taskCount = db.get('SELECT COUNT(*) as count FROM tasks');
+console.log('Total tasks:', taskCount.count);
+```
+
+```python Python
+# Get all tasks
+all_tasks = db.execute('SELECT * FROM tasks').fetchall()
+print('All tasks:', all_tasks)
+
+# Get incomplete tasks
+incomplete_tasks = db.execute('SELECT * FROM tasks WHERE completed = 0').fetchall()
+print('Incomplete tasks:', incomplete_tasks)
+
+# Get task count
+task_count = db.execute('SELECT COUNT(*) as count FROM tasks').fetchone()
+print('Total tasks:', task_count[0])
+```
+</CodeGroup>
+
+## 5. Update and Delete
+
+<CodeGroup>
+```javascript Node.js
+// Mark first task as completed
+db.run('UPDATE tasks SET completed = 1 WHERE id = 1');
+
+// Delete completed tasks
+db.run('DELETE FROM tasks WHERE completed = 1');
+
+console.log('Tasks updated and cleaned up!');
+```
+
+```python Python
+# Mark first task as completed
+db.execute('UPDATE tasks SET completed = 1 WHERE id = 1')
+
+# Delete completed tasks
+db.execute('DELETE FROM tasks WHERE completed = 1')
+
+print('Tasks updated and cleaned up!')
+```
+</CodeGroup>
+
+## 6. Complete Example
+
+Here's a complete working example:
+
+<CodeGroup>
+```javascript Node.js
+const MatsushibaDB = require('matsushibadb');
+
+async function quickStart() {
+  const db = new MatsushibaDB('quickstart.db');
+  
+  try {
+    // Create table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Insert users
+    const users = [
+      ['Alice Johnson', 'alice@example.com'],
+      ['Bob Smith', 'bob@example.com'],
+      ['Carol Davis', 'carol@example.com']
+    ];
+    
+    users.forEach(([name, email]) => {
+      db.run('INSERT OR IGNORE INTO users (name, email) VALUES (?, ?)', [name, email]);
+    });
+    
+    // Query users
+    const allUsers = db.all('SELECT * FROM users ORDER BY created_at DESC');
+    console.log('Users:', allUsers);
+    
+    // Get user count
+    const userCount = db.get('SELECT COUNT(*) as count FROM users');
+    console.log(`Total users: ${userCount.count}`);
+    
+  } catch (error) {
+    console.error('Error:', error.message);
+  } finally {
+    db.close();
+  }
+}
+
+quickStart();
+```
+
+```python Python
+import matsushibadb
+
+def quick_start():
+    db = matsushibadb.MatsushibaDB('quickstart.db')
+    
+    try:
+        # Create table
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Insert users
+        users = [
+            ('Alice Johnson', 'alice@example.com'),
+            ('Bob Smith', 'bob@example.com'),
+            ('Carol Davis', 'carol@example.com')
+        ]
+        
+        for name, email in users:
+            db.execute('INSERT OR IGNORE INTO users (name, email) VALUES (?, ?)', (name, email))
+        
+        # Query users
+        all_users = db.execute('SELECT * FROM users ORDER BY created_at DESC').fetchall()
+        print('Users:', all_users)
+        
+        # Get user count
+        user_count = db.execute('SELECT COUNT(*) as count FROM users').fetchone()
+        print(f'Total users: {user_count[0]}')
+        
+    except Exception as e:
+        print('Error:', str(e))
+    finally:
+        db.close()
+
+quick_start()
+```
+</CodeGroup>
+
+## What's Next?
+
+Now that you have MatsushibaDB running, explore these topics:
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book" href="/core-concepts/database-operations">
+    Learn about advanced database operations and data types
+  </Card>
+  <Card title="Security" icon="shield" href="/core-concepts/security">
+    Implement authentication and authorization
+  </Card>
+  <Card title="Performance" icon="chart-line" href="/core-concepts/performance">
+    Optimize your database for better performance
+  </Card>
+  <Card title="Framework Integration" icon="code" href="/guides/framework-integrations">
+    Integrate with your favorite frameworks
+  </Card>
+</CardGroup>
+
+## Common Use Cases
+
+### Todo Application
+
+<CodeGroup>
+```javascript Node.js
+// Todo app with MatsushibaDB
+const db = new MatsushibaDB('todo.db');
+
+// Create todos table
+db.run(`
+  CREATE TABLE IF NOT EXISTS todos (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    completed BOOLEAN DEFAULT 0,
+    priority INTEGER DEFAULT 1,
+    due_date DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// Add todo
+function addTodo(title, description = '', priority = 1, dueDate = null) {
+  return db.run(`
+    INSERT INTO todos (title, description, priority, due_date)
+    VALUES (?, ?, ?, ?)
+  `, [title, description, priority, dueDate]);
+}
+
+// Get todos
+function getTodos(completed = null) {
+  let sql = 'SELECT * FROM todos';
+  let params = [];
+  
+  if (completed !== null) {
+    sql += ' WHERE completed = ?';
+    params.push(completed);
+  }
+  
+  sql += ' ORDER BY priority DESC, created_at DESC';
+  return db.all(sql, params);
+}
+
+// Toggle todo completion
+function toggleTodo(id) {
+  db.run('UPDATE todos SET completed = NOT completed WHERE id = ?', [id]);
+}
+```
+
+```python Python
+# Todo app with MatsushibaDB
+db = matsushibadb.MatsushibaDB('todo.db')
+
+# Create todos table
+db.execute('''
+    CREATE TABLE IF NOT EXISTS todos (
+        id INTEGER PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        completed BOOLEAN DEFAULT 0,
+        priority INTEGER DEFAULT 1,
+        due_date DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+''')
+
+# Add todo
+def add_todo(title, description='', priority=1, due_date=None):
+    return db.execute('''
+        INSERT INTO todos (title, description, priority, due_date)
+        VALUES (?, ?, ?, ?)
+    ''', (title, description, priority, due_date))
+
+# Get todos
+def get_todos(completed=None):
+    sql = 'SELECT * FROM todos'
+    params = []
+    
+    if completed is not None:
+        sql += ' WHERE completed = ?'
+        params.append(completed)
+    
+    sql += ' ORDER BY priority DESC, created_at DESC'
+    return db.execute(sql, params).fetchall()
+
+# Toggle todo completion
+def toggle_todo(todo_id):
+    db.execute('UPDATE todos SET completed = NOT completed WHERE id = ?', (todo_id,))
+```
+</CodeGroup>
+
+### User Management
+
+<CodeGroup>
+```javascript Node.js
+// User management system
+const db = new MatsushibaDB('users.db');
+
+// Create users table
+db.run(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT DEFAULT 'user',
+    active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// Create user
+function createUser(username, email, passwordHash, role = 'user') {
+  return db.run(`
+    INSERT INTO users (username, email, password_hash, role)
+    VALUES (?, ?, ?, ?)
+  `, [username, email, passwordHash, role]);
+}
+
+// Get user by email
+function getUserByEmail(email) {
+  return db.get('SELECT * FROM users WHERE email = ?', [email]);
+}
+
+// Update user
+function updateUser(id, updates) {
+  const fields = Object.keys(updates).map(key => `${key} = ?`).join(', ');
+  const values = Object.values(updates);
+  values.push(id);
+  
+  return db.run(`UPDATE users SET ${fields}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, values);
+}
+```
+
+```python Python
+# User management system
+db = matsushibadb.MatsushibaDB('users.db')
+
+# Create users table
+db.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role TEXT DEFAULT 'user',
+        active BOOLEAN DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+''')
+
+# Create user
+def create_user(username, email, password_hash, role='user'):
+    return db.execute('''
+        INSERT INTO users (username, email, password_hash, role)
+        VALUES (?, ?, ?, ?)
+    ''', (username, email, password_hash, role))
+
+# Get user by email
+def get_user_by_email(email):
+    return db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+
+# Update user
+def update_user(user_id, updates):
+    fields = ', '.join([f'{key} = ?' for key in updates.keys()])
+    values = list(updates.values())
+    values.append(user_id)
+    
+    return db.execute(f'UPDATE users SET {fields}, updated_at = CURRENT_TIMESTAMP WHERE id = ?', values)
+```
+</CodeGroup>
+
+## Tips for Success
+
+<Steps>
+  <Step title="Start Simple">
+    Begin with basic operations and gradually add complexity.
+  </Step>
+  <Step title="Use Transactions">
+    Wrap related operations in transactions for data consistency.
+  </Step>
+  <Step title="Handle Errors">
+    Always implement proper error handling for database operations.
+  </Step>
+  <Step title="Optimize Queries">
+    Use indexes and optimize queries as your data grows.
+  </Step>
+  <Step title="Monitor Performance">
+    Track query performance and database health.
+  </Step>
+</Steps>
+
+<Note>
+This quick start guide covers the basics. For production applications, be sure to implement proper security, error handling, and performance optimization. Check out our comprehensive guides for more advanced features!
+</Note>

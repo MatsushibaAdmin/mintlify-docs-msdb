@@ -1,0 +1,1323 @@
+---
+title: "Indexing"
+description: "Master MatsushibaDB indexing strategies including single-column, composite, partial, and covering indexes for optimal query performance."
+---
+
+# Indexing
+
+Optimize MatsushibaDB query performance with strategic indexing. Learn to create, manage, and optimize indexes for maximum efficiency.
+
+## Index Fundamentals
+
+### What are Indexes?
+
+Indexes are data structures that improve the speed of data retrieval operations on a database table. They work like a book's index, providing quick access to specific data without scanning the entire table.
+
+```sql
+-- Basic index creation
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_posts_created_at ON posts(created_at);
+CREATE INDEX idx_orders_customer_id ON orders(customer_id);
+
+-- Unique indexes
+CREATE UNIQUE INDEX idx_users_username ON users(username);
+CREATE UNIQUE INDEX idx_users_email ON users(email);
+
+-- Composite indexes
+CREATE INDEX idx_posts_author_date ON posts(author_id, created_at);
+CREATE INDEX idx_orders_customer_status ON orders(customer_id, status, created_at);
+```
+
+### Index Types
+
+```sql
+-- Single-column indexes
+CREATE INDEX idx_single_column ON table_name(column_name);
+
+-- Composite indexes (multi-column)
+CREATE INDEX idx_composite ON table_name(col1, col2, col3);
+
+-- Partial indexes (with WHERE clause)
+CREATE INDEX idx_partial ON table_name(column_name) WHERE condition;
+
+-- Covering indexes (include additional columns)
+CREATE INDEX idx_covering ON table_name(col1, col2) INCLUDE (col3, col4);
+
+-- Expression indexes
+CREATE INDEX idx_expression ON table_name(UPPER(column_name));
+CREATE INDEX idx_date_part ON table_name(strftime('%Y-%m', date_column));
+```
+
+## Index Creation Strategies
+
+### Single-Column Indexes
+
+<CodeGroup>
+```javascript Node.js
+// Create single-column indexes
+function createSingleColumnIndexes() {
+    const indexes = [
+        { table: 'users', column: 'email', unique: true },
+        { table: 'users', column: 'created_at', unique: false },
+        { table: 'posts', column: 'author_id', unique: false },
+        { table: 'posts', column: 'published', unique: false },
+        { table: 'orders', column: 'customer_id', unique: false },
+        { table: 'orders', column: 'status', unique: false }
+    ];
+    
+    indexes.forEach(({ table, column, unique }) => {
+        const indexName = `idx_${table}_${column}`;
+        const uniqueClause = unique ? 'UNIQUE ' : '';
+        
+        try {
+            db.run(`CREATE ${uniqueClause}INDEX ${indexName} ON ${table}(${column})`);
+            console.log(`Created ${uniqueClause}index: ${indexName}`);
+        } catch (error) {
+            if (error.message.includes('already exists')) {
+                console.log(`Index ${indexName} already exists`);
+            } else {
+                console.error(`Error creating index ${indexName}:`, error.message);
+            }
+        }
+    });
+}
+
+// Analyze index usage
+function analyzeIndexUsage() {
+    const indexStats = db.all(`
+        SELECT 
+            name,
+            tbl_name,
+            sql,
+            CASE 
+                WHEN name LIKE 'sqlite_autoindex_%' THEN 'auto'
+                ELSE 'manual'
+            END as index_type
+        FROM sqlite_master 
+        WHERE type = 'index' 
+        AND name NOT LIKE 'sqlite_%'
+        ORDER BY tbl_name, name
+    `);
+    
+    console.log('Index Statistics:', indexStats);
+    return indexStats;
+}
+```
+
+```python Python
+# Create single-column indexes
+def create_single_column_indexes():
+    indexes = [
+        {'table': 'users', 'column': 'email', 'unique': True},
+        {'table': 'users', 'column': 'created_at', 'unique': False},
+        {'table': 'posts', 'column': 'author_id', 'unique': False},
+        {'table': 'posts', 'column': 'published', 'unique': False},
+        {'table': 'orders', 'column': 'customer_id', 'unique': False},
+        {'table': 'orders', 'column': 'status', 'unique': False}
+    ]
+    
+    for index in indexes:
+        index_name = f"idx_{index['table']}_{index['column']}"
+        unique_clause = 'UNIQUE ' if index['unique'] else ''
+        
+        try:
+            db.execute(f'CREATE {unique_clause}INDEX {index_name} ON {index["table"]}({index["column"]})')
+            print(f'Created {unique_clause}index: {index_name}')
+        except Exception as e:
+            if 'already exists' in str(e):
+                print(f'Index {index_name} already exists')
+            else:
+                print(f'Error creating index {index_name}: {str(e)}')
+
+# Analyze index usage
+def analyze_index_usage():
+    index_stats = db.execute('''
+        SELECT 
+            name,
+            tbl_name,
+            sql,
+            CASE 
+                WHEN name LIKE 'sqlite_autoindex_%' THEN 'auto'
+                ELSE 'manual'
+            END as index_type
+        FROM sqlite_master 
+        WHERE type = 'index' 
+        AND name NOT LIKE 'sqlite_%'
+        ORDER BY tbl_name, name
+    ''').fetchall()
+    
+    print('Index Statistics:', index_stats)
+    return index_stats
+```
+</CodeGroup>
+
+### Composite Indexes
+
+<CodeGroup>
+```javascript Node.js
+// Create composite indexes
+function createCompositeIndexes() {
+    const compositeIndexes = [
+        {
+            name: 'idx_posts_author_published',
+            table: 'posts',
+            columns: ['author_id', 'published', 'created_at'],
+            description: 'Optimize queries filtering by author and publication status'
+        },
+        {
+            name: 'idx_orders_customer_status_date',
+            table: 'orders',
+            columns: ['customer_id', 'status', 'created_at'],
+            description: 'Optimize order queries by customer and status'
+        },
+        {
+            name: 'idx_users_status_created',
+            table: 'users',
+            columns: ['status', 'created_at'],
+            description: 'Optimize user queries by status and creation date'
+        }
+    ];
+    
+    compositeIndexes.forEach(({ name, table, columns, description }) => {
+        try {
+            const columnList = columns.join(', ');
+            db.run(`CREATE INDEX ${name} ON ${table}(${columnList})`);
+            console.log(`Created composite index: ${name} - ${description}`);
+        } catch (error) {
+            if (error.message.includes('already exists')) {
+                console.log(`Composite index ${name} already exists`);
+            } else {
+                console.error(`Error creating composite index ${name}:`, error.message);
+            }
+        }
+    });
+}
+
+// Analyze composite index effectiveness
+function analyzeCompositeIndex(query) {
+    try {
+        const explainQuery = `EXPLAIN QUERY PLAN ${query}`;
+        const plan = db.all(explainQuery);
+        
+        console.log('Query Plan:', plan);
+        
+        // Check if composite index is being used
+        const usesCompositeIndex = plan.some(step => 
+            step.detail.includes('USING INDEX') && 
+            step.detail.includes('idx_')
+        );
+        
+        return {
+            query: query,
+            plan: plan,
+            usesCompositeIndex: usesCompositeIndex,
+            recommendations: generateIndexRecommendations(plan)
+        };
+    } catch (error) {
+        console.error('Error analyzing query:', error);
+        return null;
+    }
+}
+```
+
+```python Python
+# Create composite indexes
+def create_composite_indexes():
+    composite_indexes = [
+        {
+            'name': 'idx_posts_author_published',
+            'table': 'posts',
+            'columns': ['author_id', 'published', 'created_at'],
+            'description': 'Optimize queries filtering by author and publication status'
+        },
+        {
+            'name': 'idx_orders_customer_status_date',
+            'table': 'orders',
+            'columns': ['customer_id', 'status', 'created_at'],
+            'description': 'Optimize order queries by customer and status'
+        },
+        {
+            'name': 'idx_users_status_created',
+            'table': 'users',
+            'columns': ['status', 'created_at'],
+            'description': 'Optimize user queries by status and creation date'
+        }
+    ]
+    
+    for index in composite_indexes:
+        try:
+            column_list = ', '.join(index['columns'])
+            db.execute(f'CREATE INDEX {index["name"]} ON {index["table"]}({column_list})')
+            print(f'Created composite index: {index["name"]} - {index["description"]}')
+        except Exception as e:
+            if 'already exists' in str(e):
+                print(f'Composite index {index["name"]} already exists')
+            else:
+                print(f'Error creating composite index {index["name"]}: {str(e)}')
+
+# Analyze composite index effectiveness
+def analyze_composite_index(query):
+    try:
+        explain_query = f'EXPLAIN QUERY PLAN {query}'
+        plan = db.execute(explain_query).fetchall()
+        
+        print('Query Plan:', plan)
+        
+        # Check if composite index is being used
+        uses_composite_index = any(
+            'USING INDEX' in step[3] and 'idx_' in step[3]
+            for step in plan
+        )
+        
+        return {
+            'query': query,
+            'plan': plan,
+            'uses_composite_index': uses_composite_index,
+            'recommendations': generate_index_recommendations(plan)
+        }
+    except Exception as e:
+        print(f'Error analyzing query: {e}')
+        return None
+```
+</CodeGroup>
+
+### Partial Indexes
+
+<CodeGroup>
+```javascript Node.js
+// Create partial indexes
+function createPartialIndexes() {
+    const partialIndexes = [
+        {
+            name: 'idx_active_users',
+            table: 'users',
+            column: 'email',
+            condition: "status = 'active'",
+            description: 'Index only active users for faster lookups'
+        },
+        {
+            name: 'idx_published_posts',
+            table: 'posts',
+            column: 'created_at',
+            condition: 'published = 1',
+            description: 'Index only published posts by creation date'
+        },
+        {
+            name: 'idx_recent_orders',
+            table: 'orders',
+            column: 'customer_id',
+            condition: "created_at > date('now', '-30 days')",
+            description: 'Index recent orders for better performance'
+        },
+        {
+            name: 'idx_high_value_orders',
+            table: 'orders',
+            column: 'status',
+            condition: 'total_amount > 1000',
+            description: 'Index high-value orders for priority processing'
+        }
+    ];
+    
+    partialIndexes.forEach(({ name, table, column, condition, description }) => {
+        try {
+            db.run(`CREATE INDEX ${name} ON ${table}(${column}) WHERE ${condition}`);
+            console.log(`Created partial index: ${name} - ${description}`);
+        } catch (error) {
+            if (error.message.includes('already exists')) {
+                console.log(`Partial index ${name} already exists`);
+            } else {
+                console.error(`Error creating partial index ${name}:`, error.message);
+            }
+        }
+    });
+}
+
+// Analyze partial index usage
+function analyzePartialIndexUsage() {
+    const partialIndexStats = db.all(`
+        SELECT 
+            name,
+            tbl_name,
+            sql,
+            CASE 
+                WHEN sql LIKE '%WHERE%' THEN 'partial'
+                ELSE 'full'
+            END as index_type
+        FROM sqlite_master 
+        WHERE type = 'index' 
+        AND name NOT LIKE 'sqlite_%'
+        AND sql LIKE '%WHERE%'
+        ORDER BY tbl_name, name
+    `);
+    
+    console.log('Partial Index Statistics:', partialIndexStats);
+    return partialIndexStats;
+}
+```
+
+```python Python
+# Create partial indexes
+def create_partial_indexes():
+    partial_indexes = [
+        {
+            'name': 'idx_active_users',
+            'table': 'users',
+            'column': 'email',
+            'condition': "status = 'active'",
+            'description': 'Index only active users for faster lookups'
+        },
+        {
+            'name': 'idx_published_posts',
+            'table': 'posts',
+            'column': 'created_at',
+            'condition': 'published = 1',
+            'description': 'Index only published posts by creation date'
+        },
+        {
+            'name': 'idx_recent_orders',
+            'table': 'orders',
+            'column': 'customer_id',
+            'condition': "created_at > date('now', '-30 days')",
+            'description': 'Index recent orders for better performance'
+        },
+        {
+            'name': 'idx_high_value_orders',
+            'table': 'orders',
+            'column': 'status',
+            'condition': 'total_amount > 1000',
+            'description': 'Index high-value orders for priority processing'
+        }
+    ]
+    
+    for index in partial_indexes:
+        try:
+            db.execute(f'CREATE INDEX {index["name"]} ON {index["table"]}({index["column"]}) WHERE {index["condition"]}')
+            print(f'Created partial index: {index["name"]} - {index["description"]}')
+        except Exception as e:
+            if 'already exists' in str(e):
+                print(f'Partial index {index["name"]} already exists')
+            else:
+                print(f'Error creating partial index {index["name"]}: {str(e)}')
+
+# Analyze partial index usage
+def analyze_partial_index_usage():
+    partial_index_stats = db.execute('''
+        SELECT 
+            name,
+            tbl_name,
+            sql,
+            CASE 
+                WHEN sql LIKE '%WHERE%' THEN 'partial'
+                ELSE 'full'
+            END as index_type
+        FROM sqlite_master 
+        WHERE type = 'index' 
+        AND name NOT LIKE 'sqlite_%'
+        AND sql LIKE '%WHERE%'
+        ORDER BY tbl_name, name
+    ''').fetchall()
+    
+    print('Partial Index Statistics:', partial_index_stats)
+    return partial_index_stats
+```
+</CodeGroup>
+
+## Index Optimization
+
+### Query Analysis
+
+<CodeGroup>
+```javascript Node.js
+// Query performance analyzer
+class QueryAnalyzer {
+    constructor(db) {
+        this.db = db;
+        this.queryHistory = [];
+    }
+    
+    // Analyze query performance
+    analyzeQuery(sql, params = []) {
+        const startTime = Date.now();
+        
+        try {
+            // Get query plan
+            const explainQuery = `EXPLAIN QUERY PLAN ${sql}`;
+            const plan = this.db.all(explainQuery, params);
+            
+            // Execute query to measure performance
+            const result = this.db.all(sql, params);
+            const executionTime = Date.now() - startTime;
+            
+            // Analyze plan
+            const analysis = this.analyzeQueryPlan(plan);
+            
+            // Store query history
+            this.queryHistory.push({
+                sql: sql,
+                params: params,
+                executionTime: executionTime,
+                plan: plan,
+                analysis: analysis,
+                timestamp: new Date()
+            });
+            
+            return {
+                sql: sql,
+                executionTime: executionTime,
+                resultCount: result.length,
+                plan: plan,
+                analysis: analysis,
+                recommendations: this.generateRecommendations(analysis)
+            };
+        } catch (error) {
+            console.error('Query analysis failed:', error);
+            return null;
+        }
+    }
+    
+    // Analyze query plan
+    analyzeQueryPlan(plan) {
+        const analysis = {
+            hasTableScan: false,
+            usesIndex: false,
+            indexName: null,
+            estimatedRows: 0,
+            operations: []
+        };
+        
+        plan.forEach(step => {
+            const detail = step.detail;
+            
+            if (detail.includes('SCAN TABLE') && !detail.includes('USING INDEX')) {
+                analysis.hasTableScan = true;
+            }
+            
+            if (detail.includes('USING INDEX')) {
+                analysis.usesIndex = true;
+                const indexMatch = detail.match(/USING INDEX (\w+)/);
+                if (indexMatch) {
+                    analysis.indexName = indexMatch[1];
+                }
+            }
+            
+            // Extract operation type
+            if (detail.includes('SCAN TABLE')) {
+                analysis.operations.push('TABLE_SCAN');
+            } else if (detail.includes('SEARCH TABLE')) {
+                analysis.operations.push('INDEX_SEARCH');
+            } else if (detail.includes('USE TEMP B-TREE')) {
+                analysis.operations.push('TEMP_BTREE');
+            }
+        });
+        
+        return analysis;
+    }
+    
+    // Generate optimization recommendations
+    generateRecommendations(analysis) {
+        const recommendations = [];
+        
+        if (analysis.hasTableScan) {
+            recommendations.push({
+                type: 'missing_index',
+                severity: 'high',
+                message: 'Query performs full table scan. Consider adding an index.',
+                suggestion: 'Create an index on the columns used in WHERE clause'
+            });
+        }
+        
+        if (analysis.operations.includes('TEMP_BTREE')) {
+            recommendations.push({
+                type: 'temp_btree',
+                severity: 'medium',
+                message: 'Query uses temporary B-tree for sorting/grouping.',
+                suggestion: 'Consider adding an index to avoid temporary sorting'
+            });
+        }
+        
+        if (analysis.executionTime > 1000) {
+            recommendations.push({
+                type: 'slow_query',
+                severity: 'high',
+                message: 'Query execution time is slow.',
+                suggestion: 'Optimize query or add appropriate indexes'
+            });
+        }
+        
+        return recommendations;
+    }
+    
+    // Get slow queries
+    getSlowQueries(threshold = 1000) {
+        return this.queryHistory.filter(query => 
+            query.executionTime > threshold
+        ).sort((a, b) => b.executionTime - a.executionTime);
+    }
+    
+    // Get query statistics
+    getQueryStats() {
+        const totalQueries = this.queryHistory.length;
+        const totalTime = this.queryHistory.reduce((sum, query) => sum + query.executionTime, 0);
+        const averageTime = totalQueries > 0 ? totalTime / totalQueries : 0;
+        
+        return {
+            totalQueries: totalQueries,
+            totalTime: totalTime,
+            averageTime: averageTime,
+            slowQueries: this.getSlowQueries().length
+        };
+    }
+}
+
+// Usage
+const analyzer = new QueryAnalyzer(db);
+
+// Analyze a query
+const analysis = analyzer.analyzeQuery(`
+    SELECT * FROM users 
+    WHERE status = ? AND created_at > ?
+    ORDER BY created_at DESC
+`, ['active', '2024-01-01']);
+
+console.log('Query Analysis:', analysis);
+```
+
+```python Python
+# Query performance analyzer
+class QueryAnalyzer:
+    def __init__(self, db):
+        self.db = db
+        self.query_history = []
+    
+    # Analyze query performance
+    def analyze_query(self, sql, params=None):
+        start_time = time.time()
+        
+        try:
+            # Get query plan
+            explain_query = f'EXPLAIN QUERY PLAN {sql}'
+            plan = self.db.execute(explain_query, params or []).fetchall()
+            
+            # Execute query to measure performance
+            result = self.db.execute(sql, params or []).fetchall()
+            execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+            
+            # Analyze plan
+            analysis = self.analyze_query_plan(plan)
+            
+            # Store query history
+            self.query_history.append({
+                'sql': sql,
+                'params': params,
+                'execution_time': execution_time,
+                'plan': plan,
+                'analysis': analysis,
+                'timestamp': time.time()
+            })
+            
+            return {
+                'sql': sql,
+                'execution_time': execution_time,
+                'result_count': len(result),
+                'plan': plan,
+                'analysis': analysis,
+                'recommendations': self.generate_recommendations(analysis)
+            }
+        except Exception as e:
+            print(f'Query analysis failed: {e}')
+            return None
+    
+    # Analyze query plan
+    def analyze_query_plan(self, plan):
+        analysis = {
+            'has_table_scan': False,
+            'uses_index': False,
+            'index_name': None,
+            'estimated_rows': 0,
+            'operations': []
+        }
+        
+        for step in plan:
+            detail = step[3]
+            
+            if 'SCAN TABLE' in detail and 'USING INDEX' not in detail:
+                analysis['has_table_scan'] = True
+            
+            if 'USING INDEX' in detail:
+                analysis['uses_index'] = True
+                import re
+                index_match = re.search(r'USING INDEX (\w+)', detail)
+                if index_match:
+                    analysis['index_name'] = index_match.group(1)
+            
+            # Extract operation type
+            if 'SCAN TABLE' in detail:
+                analysis['operations'].append('TABLE_SCAN')
+            elif 'SEARCH TABLE' in detail:
+                analysis['operations'].append('INDEX_SEARCH')
+            elif 'USE TEMP B-TREE' in detail:
+                analysis['operations'].append('TEMP_BTREE')
+        
+        return analysis
+    
+    # Generate optimization recommendations
+    def generate_recommendations(self, analysis):
+        recommendations = []
+        
+        if analysis['has_table_scan']:
+            recommendations.append({
+                'type': 'missing_index',
+                'severity': 'high',
+                'message': 'Query performs full table scan. Consider adding an index.',
+                'suggestion': 'Create an index on the columns used in WHERE clause'
+            })
+        
+        if 'TEMP_BTREE' in analysis['operations']:
+            recommendations.append({
+                'type': 'temp_btree',
+                'severity': 'medium',
+                'message': 'Query uses temporary B-tree for sorting/grouping.',
+                'suggestion': 'Consider adding an index to avoid temporary sorting'
+            })
+        
+        if analysis.get('execution_time', 0) > 1000:
+            recommendations.append({
+                'type': 'slow_query',
+                'severity': 'high',
+                'message': 'Query execution time is slow.',
+                'suggestion': 'Optimize query or add appropriate indexes'
+            })
+        
+        return recommendations
+    
+    # Get slow queries
+    def get_slow_queries(self, threshold=1000):
+        return [query for query in self.query_history if query['execution_time'] > threshold]
+    
+    # Get query statistics
+    def get_query_stats(self):
+        total_queries = len(self.query_history)
+        total_time = sum(query['execution_time'] for query in self.query_history)
+        average_time = total_time / total_queries if total_queries > 0 else 0
+        
+        return {
+            'total_queries': total_queries,
+            'total_time': total_time,
+            'average_time': average_time,
+            'slow_queries': len(self.get_slow_queries())
+        }
+
+# Usage
+analyzer = QueryAnalyzer(db)
+
+# Analyze a query
+analysis = analyzer.analyze_query('''
+    SELECT * FROM users 
+    WHERE status = ? AND created_at > ?
+    ORDER BY created_at DESC
+''', ('active', '2024-01-01'))
+
+print('Query Analysis:', analysis)
+```
+</CodeGroup>
+
+### Index Maintenance
+
+<CodeGroup>
+```javascript Node.js
+// Index maintenance utilities
+class IndexMaintenance {
+    constructor(db) {
+        this.db = db;
+    }
+    
+    // Rebuild all indexes
+    rebuildAllIndexes() {
+        try {
+            console.log('Starting index rebuild...');
+            
+            // Get all indexes
+            const indexes = this.db.all(`
+                SELECT name, sql, tbl_name
+                FROM sqlite_master 
+                WHERE type = 'index' 
+                AND name NOT LIKE 'sqlite_%'
+            `);
+            
+            indexes.forEach(({ name, sql, tbl_name }) => {
+                try {
+                    // Drop and recreate index
+                    this.db.run(`DROP INDEX ${name}`);
+                    this.db.run(sql);
+                    console.log(`Rebuilt index: ${name} on table ${tbl_name}`);
+                } catch (error) {
+                    console.error(`Error rebuilding index ${name}:`, error.message);
+                }
+            });
+            
+            console.log('Index rebuild completed');
+        } catch (error) {
+            console.error('Error during index rebuild:', error.message);
+        }
+    }
+    
+    // Analyze table statistics
+    analyzeTable(tableName) {
+        try {
+            const stats = this.db.get(`
+                SELECT 
+                    COUNT(*) as row_count,
+                    COUNT(DISTINCT *) as unique_rows
+                FROM ${tableName}
+            `);
+            
+            const indexStats = this.db.all(`
+                SELECT 
+                    name,
+                    sql,
+                    CASE 
+                        WHEN sql LIKE '%WHERE%' THEN 'partial'
+                        ELSE 'full'
+                    END as index_type
+                FROM sqlite_master 
+                WHERE type = 'index' 
+                AND tbl_name = ?
+                AND name NOT LIKE 'sqlite_%'
+            `, [tableName]);
+            
+            return {
+                table: tableName,
+                rowCount: stats.row_count,
+                uniqueRows: stats.unique_rows,
+                indexes: indexStats
+            };
+        } catch (error) {
+            console.error(`Error analyzing table ${tableName}:`, error.message);
+            return null;
+        }
+    }
+    
+    // Check for unused indexes
+    findUnusedIndexes() {
+        try {
+            // This is a simplified check - in practice, you'd need to monitor actual usage
+            const allIndexes = this.db.all(`
+                SELECT name, tbl_name, sql
+                FROM sqlite_master 
+                WHERE type = 'index' 
+                AND name NOT LIKE 'sqlite_%'
+            `);
+            
+            const unusedIndexes = [];
+            
+            allIndexes.forEach(({ name, tbl_name, sql }) => {
+                // Check if index is likely unused based on naming patterns
+                if (name.includes('temp_') || name.includes('old_')) {
+                    unusedIndexes.push({
+                        name: name,
+                        table: tbl_name,
+                        reason: 'Temporary or old index',
+                        sql: sql
+                    });
+                }
+            });
+            
+            return unusedIndexes;
+        } catch (error) {
+            console.error('Error finding unused indexes:', error.message);
+            return [];
+        }
+    }
+    
+    // Optimize database
+    optimizeDatabase() {
+        try {
+            console.log('Starting database optimization...');
+            
+            // Run ANALYZE to update statistics
+            this.db.run('ANALYZE');
+            console.log('Updated table statistics');
+            
+            // Run VACUUM to reclaim space
+            this.db.run('VACUUM');
+            console.log('Reclaimed database space');
+            
+            // Rebuild indexes
+            this.rebuildAllIndexes();
+            
+            console.log('Database optimization completed');
+        } catch (error) {
+            console.error('Error during database optimization:', error.message);
+        }
+    }
+}
+
+// Usage
+const maintenance = new IndexMaintenance(db);
+
+// Analyze a table
+const tableAnalysis = maintenance.analyzeTable('users');
+console.log('Table Analysis:', tableAnalysis);
+
+// Find unused indexes
+const unusedIndexes = maintenance.findUnusedIndexes();
+console.log('Unused Indexes:', unusedIndexes);
+
+// Optimize database
+maintenance.optimizeDatabase();
+```
+
+```python Python
+# Index maintenance utilities
+class IndexMaintenance:
+    def __init__(self, db):
+        self.db = db
+    
+    # Rebuild all indexes
+    def rebuild_all_indexes(self):
+        try:
+            print('Starting index rebuild...')
+            
+            # Get all indexes
+            indexes = self.db.execute('''
+                SELECT name, sql, tbl_name
+                FROM sqlite_master 
+                WHERE type = 'index' 
+                AND name NOT LIKE 'sqlite_%'
+            ''').fetchall()
+            
+            for name, sql, tbl_name in indexes:
+                try:
+                    # Drop and recreate index
+                    self.db.execute(f'DROP INDEX {name}')
+                    self.db.execute(sql)
+                    print(f'Rebuilt index: {name} on table {tbl_name}')
+                except Exception as e:
+                    print(f'Error rebuilding index {name}: {str(e)}')
+            
+            print('Index rebuild completed')
+        except Exception as e:
+            print(f'Error during index rebuild: {str(e)}')
+    
+    # Analyze table statistics
+    def analyze_table(self, table_name):
+        try:
+            stats = self.db.execute(f'SELECT COUNT(*) as row_count FROM {table_name}').fetchone()
+            
+            index_stats = self.db.execute('''
+                SELECT 
+                    name,
+                    sql,
+                    CASE 
+                        WHEN sql LIKE '%WHERE%' THEN 'partial'
+                        ELSE 'full'
+                    END as index_type
+                FROM sqlite_master 
+                WHERE type = 'index' 
+                AND tbl_name = ?
+                AND name NOT LIKE 'sqlite_%'
+            ''', (table_name,)).fetchall()
+            
+            return {
+                'table': table_name,
+                'row_count': stats[0],
+                'indexes': index_stats
+            }
+        except Exception as e:
+            print(f'Error analyzing table {table_name}: {str(e)}')
+            return None
+    
+    # Check for unused indexes
+    def find_unused_indexes(self):
+        try:
+            # This is a simplified check - in practice, you'd need to monitor actual usage
+            all_indexes = self.db.execute('''
+                SELECT name, tbl_name, sql
+                FROM sqlite_master 
+                WHERE type = 'index' 
+                AND name NOT LIKE 'sqlite_%'
+            ''').fetchall()
+            
+            unused_indexes = []
+            
+            for name, tbl_name, sql in all_indexes:
+                # Check if index is likely unused based on naming patterns
+                if 'temp_' in name or 'old_' in name:
+                    unused_indexes.append({
+                        'name': name,
+                        'table': tbl_name,
+                        'reason': 'Temporary or old index',
+                        'sql': sql
+                    })
+            
+            return unused_indexes
+        except Exception as e:
+            print(f'Error finding unused indexes: {str(e)}')
+            return []
+    
+    # Optimize database
+    def optimize_database(self):
+        try:
+            print('Starting database optimization...')
+            
+            # Run ANALYZE to update statistics
+            self.db.execute('ANALYZE')
+            print('Updated table statistics')
+            
+            # Run VACUUM to reclaim space
+            self.db.execute('VACUUM')
+            print('Reclaimed database space')
+            
+            # Rebuild indexes
+            self.rebuild_all_indexes()
+            
+            print('Database optimization completed')
+        except Exception as e:
+            print(f'Error during database optimization: {str(e)}')
+
+# Usage
+maintenance = IndexMaintenance(db)
+
+# Analyze a table
+table_analysis = maintenance.analyze_table('users')
+print('Table Analysis:', table_analysis)
+
+# Find unused indexes
+unused_indexes = maintenance.find_unused_indexes()
+print('Unused Indexes:', unused_indexes)
+
+# Optimize database
+maintenance.optimize_database()
+```
+</CodeGroup>
+
+## Index Best Practices
+
+### Index Design Guidelines
+
+<CodeGroup>
+```javascript Node.js
+// Index design recommendations
+class IndexDesigner {
+    constructor(db) {
+        this.db = db;
+    }
+    
+    // Analyze table for index recommendations
+    analyzeTableForIndexes(tableName) {
+        try {
+            // Get table structure
+            const columns = this.db.all(`PRAGMA table_info(${tableName})`);
+            
+            // Get sample data to understand patterns
+            const sampleData = this.db.all(`SELECT * FROM ${tableName} LIMIT 100`);
+            
+            const recommendations = [];
+            
+            columns.forEach(column => {
+                const { name, type, pk, notnull } = column;
+                
+                // Primary key recommendations
+                if (pk) {
+                    recommendations.push({
+                        type: 'primary_key',
+                        column: name,
+                        priority: 'high',
+                        reason: 'Primary key automatically indexed',
+                        action: 'No action needed'
+                    });
+                }
+                
+                // Foreign key recommendations
+                if (name.endsWith('_id') && !pk) {
+                    recommendations.push({
+                        type: 'foreign_key',
+                        column: name,
+                        priority: 'high',
+                        reason: 'Foreign key column for joins',
+                        action: `CREATE INDEX idx_${tableName}_${name} ON ${tableName}(${name})`
+                    });
+                }
+                
+                // Unique column recommendations
+                if (name.includes('email') || name.includes('username')) {
+                    recommendations.push({
+                        type: 'unique_column',
+                        column: name,
+                        priority: 'high',
+                        reason: 'Unique identifier column',
+                        action: `CREATE UNIQUE INDEX idx_${tableName}_${name} ON ${tableName}(${name})`
+                    });
+                }
+                
+                // Date/time column recommendations
+                if (name.includes('created') || name.includes('updated') || name.includes('date')) {
+                    recommendations.push({
+                        type: 'datetime_column',
+                        column: name,
+                        priority: 'medium',
+                        reason: 'Date/time column for sorting and filtering',
+                        action: `CREATE INDEX idx_${tableName}_${name} ON ${tableName}(${name})`
+                    });
+                }
+                
+                // Status/flag column recommendations
+                if (name.includes('status') || name.includes('active') || name.includes('published')) {
+                    recommendations.push({
+                        type: 'status_column',
+                        column: name,
+                        priority: 'medium',
+                        reason: 'Status column for filtering',
+                        action: `CREATE INDEX idx_${tableName}_${name} ON ${tableName}(${name})`
+                    });
+                }
+            });
+            
+            return {
+                table: tableName,
+                columns: columns,
+                recommendations: recommendations
+            };
+        } catch (error) {
+            console.error(`Error analyzing table ${tableName}:`, error.message);
+            return null;
+        }
+    }
+    
+    // Generate composite index recommendations
+    generateCompositeIndexRecommendations(tableName) {
+        try {
+            // Analyze common query patterns
+            const commonPatterns = [
+                {
+                    pattern: 'status + created_at',
+                    columns: ['status', 'created_at'],
+                    reason: 'Common filtering pattern'
+                },
+                {
+                    pattern: 'user_id + status',
+                    columns: ['user_id', 'status'],
+                    reason: 'User-specific filtering'
+                },
+                {
+                    pattern: 'category + published + created_at',
+                    columns: ['category', 'published', 'created_at'],
+                    reason: 'Content filtering and sorting'
+                }
+            ];
+            
+            const recommendations = [];
+            
+            commonPatterns.forEach(({ pattern, columns, reason }) => {
+                // Check if columns exist in table
+                const existingColumns = this.db.all(`PRAGMA table_info(${tableName})`);
+                const columnNames = existingColumns.map(col => col.name);
+                
+                const matchingColumns = columns.filter(col => columnNames.includes(col));
+                
+                if (matchingColumns.length > 1) {
+                    recommendations.push({
+                        type: 'composite_index',
+                        pattern: pattern,
+                        columns: matchingColumns,
+                        priority: 'medium',
+                        reason: reason,
+                        action: `CREATE INDEX idx_${tableName}_${matchingColumns.join('_')} ON ${tableName}(${matchingColumns.join(', ')})`
+                    });
+                }
+            });
+            
+            return recommendations;
+        } catch (error) {
+            console.error(`Error generating composite index recommendations:`, error.message);
+            return [];
+        }
+    }
+}
+
+// Usage
+const designer = new IndexDesigner(db);
+
+// Analyze table for indexes
+const analysis = designer.analyzeTableForIndexes('users');
+console.log('Index Analysis:', analysis);
+
+// Generate composite index recommendations
+const compositeRecommendations = designer.generateCompositeIndexRecommendations('posts');
+console.log('Composite Index Recommendations:', compositeRecommendations);
+```
+
+```python Python
+# Index design recommendations
+class IndexDesigner:
+    def __init__(self, db):
+        self.db = db
+    
+    # Analyze table for index recommendations
+    def analyze_table_for_indexes(self, table_name):
+        try:
+            # Get table structure
+            columns = self.db.execute(f'PRAGMA table_info({table_name})').fetchall()
+            
+            # Get sample data to understand patterns
+            sample_data = self.db.execute(f'SELECT * FROM {table_name} LIMIT 100').fetchall()
+            
+            recommendations = []
+            
+            for column in columns:
+                name, type_name, pk, notnull, default_value = column
+                
+                # Primary key recommendations
+                if pk:
+                    recommendations.append({
+                        'type': 'primary_key',
+                        'column': name,
+                        'priority': 'high',
+                        'reason': 'Primary key automatically indexed',
+                        'action': 'No action needed'
+                    })
+                
+                # Foreign key recommendations
+                if name.endswith('_id') and not pk:
+                    recommendations.append({
+                        'type': 'foreign_key',
+                        'column': name,
+                        'priority': 'high',
+                        'reason': 'Foreign key column for joins',
+                        'action': f'CREATE INDEX idx_{table_name}_{name} ON {table_name}({name})'
+                    })
+                
+                # Unique column recommendations
+                if 'email' in name or 'username' in name:
+                    recommendations.append({
+                        'type': 'unique_column',
+                        'column': name,
+                        'priority': 'high',
+                        'reason': 'Unique identifier column',
+                        'action': f'CREATE UNIQUE INDEX idx_{table_name}_{name} ON {table_name}({name})'
+                    })
+                
+                # Date/time column recommendations
+                if 'created' in name or 'updated' in name or 'date' in name:
+                    recommendations.append({
+                        'type': 'datetime_column',
+                        'column': name,
+                        'priority': 'medium',
+                        'reason': 'Date/time column for sorting and filtering',
+                        'action': f'CREATE INDEX idx_{table_name}_{name} ON {table_name}({name})'
+                    })
+                
+                # Status/flag column recommendations
+                if 'status' in name or 'active' in name or 'published' in name:
+                    recommendations.append({
+                        'type': 'status_column',
+                        'column': name,
+                        'priority': 'medium',
+                        'reason': 'Status column for filtering',
+                        'action': f'CREATE INDEX idx_{table_name}_{name} ON {table_name}({name})'
+                    })
+            
+            return {
+                'table': table_name,
+                'columns': columns,
+                'recommendations': recommendations
+            }
+        except Exception as e:
+            print(f'Error analyzing table {table_name}: {str(e)}')
+            return None
+    
+    # Generate composite index recommendations
+    def generate_composite_index_recommendations(self, table_name):
+        try:
+            # Analyze common query patterns
+            common_patterns = [
+                {
+                    'pattern': 'status + created_at',
+                    'columns': ['status', 'created_at'],
+                    'reason': 'Common filtering pattern'
+                },
+                {
+                    'pattern': 'user_id + status',
+                    'columns': ['user_id', 'status'],
+                    'reason': 'User-specific filtering'
+                },
+                {
+                    'pattern': 'category + published + created_at',
+                    'columns': ['category', 'published', 'created_at'],
+                    'reason': 'Content filtering and sorting'
+                }
+            ]
+            
+            recommendations = []
+            
+            for pattern_info in common_patterns:
+                pattern = pattern_info['pattern']
+                columns = pattern_info['columns']
+                reason = pattern_info['reason']
+                
+                # Check if columns exist in table
+                existing_columns = self.db.execute(f'PRAGMA table_info({table_name})').fetchall()
+                column_names = [col[1] for col in existing_columns]
+                
+                matching_columns = [col for col in columns if col in column_names]
+                
+                if len(matching_columns) > 1:
+                    recommendations.append({
+                        'type': 'composite_index',
+                        'pattern': pattern,
+                        'columns': matching_columns,
+                        'priority': 'medium',
+                        'reason': reason,
+                        'action': f'CREATE INDEX idx_{table_name}_{"_".join(matching_columns)} ON {table_name}({", ".join(matching_columns)})'
+                    })
+            
+            return recommendations
+        except Exception as e:
+            print(f'Error generating composite index recommendations: {str(e)}')
+            return []
+
+# Usage
+designer = IndexDesigner(db)
+
+# Analyze table for indexes
+analysis = designer.analyze_table_for_indexes('users')
+print('Index Analysis:', analysis)
+
+# Generate composite index recommendations
+composite_recommendations = designer.generate_composite_index_recommendations('posts')
+print('Composite Index Recommendations:', composite_recommendations)
+```
+</CodeGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Index Frequently Queried Columns">
+    Create indexes on columns that appear frequently in WHERE clauses and JOIN conditions.
+  </Step>
+  <Step title="Use Composite Indexes Wisely">
+    Create composite indexes for multi-column queries, but consider column order carefully.
+  </Step>
+  <Step title="Consider Partial Indexes">
+    Use partial indexes for filtered data to reduce index size and improve performance.
+  </Step>
+  <Step title="Monitor Index Usage">
+    Regularly monitor index usage and remove unused indexes to reduce maintenance overhead.
+  </Step>
+  <Step title="Balance Index Count">
+    Don't over-index - each index adds overhead for INSERT, UPDATE, and DELETE operations.
+  </Step>
+  <Step title="Use Covering Indexes">
+    Create covering indexes to avoid table lookups for frequently accessed data.
+  </Step>
+  <Step title="Analyze Query Plans">
+    Use EXPLAIN QUERY PLAN to understand how indexes are being used.
+  </Step>
+  <Step title="Regular Maintenance">
+    Perform regular index maintenance including rebuilding and statistics updates.
+  </Step>
+</Steps>
+
+<Note>
+Effective indexing is crucial for database performance. Always analyze your query patterns, monitor index usage, and maintain a balance between query performance and maintenance overhead.
+</Note>

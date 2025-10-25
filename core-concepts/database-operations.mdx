@@ -1,0 +1,666 @@
+---
+title: "Database Operations"
+description: "Learn the fundamental database operations in MatsushibaDB including CRUD operations, queries, and data manipulation."
+---
+
+# Database Operations
+
+Master the core database operations in MatsushibaDB. This guide covers everything from basic CRUD operations to advanced querying techniques.
+
+## Basic Operations
+
+### Creating Tables
+
+```sql
+-- Basic table creation
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    age INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table with foreign key
+CREATE TABLE posts (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    content TEXT,
+    author_id INTEGER,
+    published BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (author_id) REFERENCES users(id)
+);
+
+-- Table with constraints
+CREATE TABLE products (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    price DECIMAL(10,2) CHECK (price > 0),
+    category_id INTEGER,
+    stock INTEGER DEFAULT 0 CHECK (stock >= 0),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (category_id) REFERENCES categories(id)
+);
+```
+
+### Inserting Data
+
+<CodeGroup>
+```javascript Node.js
+const MatsushibaDB = require('matsushibadb');
+const db = new MatsushibaDB('app.db');
+
+// Single insert
+const result = db.run(`
+    INSERT INTO users (name, email, age)
+    VALUES (?, ?, ?)
+`, ['John Doe', 'john@example.com', 30]);
+
+console.log('User created with ID:', result.lastInsertRowid);
+
+// Multiple inserts
+const users = [
+    ['Alice Smith', 'alice@example.com', 25],
+    ['Bob Johnson', 'bob@example.com', 35],
+    ['Carol Davis', 'carol@example.com', 28]
+];
+
+users.forEach(([name, email, age]) => {
+    db.run('INSERT INTO users (name, email, age) VALUES (?, ?, ?)', [name, email, age]);
+});
+
+// Insert with conflict resolution
+db.run(`
+    INSERT OR REPLACE INTO users (email, name, age)
+    VALUES (?, ?, ?)
+`, ['john@example.com', 'John Updated', 31]);
+```
+
+```python Python
+import matsushibadb
+db = matsushibadb.MatsushibaDB('app.db')
+
+# Single insert
+result = db.execute('''
+    INSERT INTO users (name, email, age)
+    VALUES (?, ?, ?)
+''', ('John Doe', 'john@example.com', 30))
+
+print('User created with ID:', result.lastrowid)
+
+# Multiple inserts
+users = [
+    ('Alice Smith', 'alice@example.com', 25),
+    ('Bob Johnson', 'bob@example.com', 35),
+    ('Carol Davis', 'carol@example.com', 28)
+]
+
+for name, email, age in users:
+    db.execute('INSERT INTO users (name, email, age) VALUES (?, ?, ?)', (name, email, age))
+
+# Insert with conflict resolution
+db.execute('''
+    INSERT OR REPLACE INTO users (email, name, age)
+    VALUES (?, ?, ?)
+''', ('john@example.com', 'John Updated', 31))
+```
+</CodeGroup>
+
+### Querying Data
+
+<CodeGroup>
+```javascript Node.js
+// Get all records
+const allUsers = db.all('SELECT * FROM users');
+console.log('All users:', allUsers);
+
+// Get single record
+const user = db.get('SELECT * FROM users WHERE id = ?', [1]);
+console.log('User:', user);
+
+// Get with conditions
+const activeUsers = db.all(`
+    SELECT * FROM users 
+    WHERE age > ? AND email LIKE ?
+    ORDER BY created_at DESC
+`, [25, '%@example.com']);
+
+// Get with joins
+const postsWithAuthors = db.all(`
+    SELECT p.*, u.name as author_name, u.email as author_email
+    FROM posts p
+    JOIN users u ON p.author_id = u.id
+    WHERE p.published = 1
+    ORDER BY p.created_at DESC
+`);
+
+// Count records
+const userCount = db.get('SELECT COUNT(*) as count FROM users');
+console.log('Total users:', userCount.count);
+
+// Aggregate functions
+const stats = db.get(`
+    SELECT 
+        COUNT(*) as total_users,
+        AVG(age) as avg_age,
+        MIN(age) as min_age,
+        MAX(age) as max_age
+    FROM users
+`);
+```
+
+```python Python
+# Get all records
+all_users = db.execute('SELECT * FROM users').fetchall()
+print('All users:', all_users)
+
+# Get single record
+user = db.execute('SELECT * FROM users WHERE id = ?', (1,)).fetchone()
+print('User:', user)
+
+# Get with conditions
+active_users = db.execute('''
+    SELECT * FROM users 
+    WHERE age > ? AND email LIKE ?
+    ORDER BY created_at DESC
+''', (25, '%@example.com')).fetchall()
+
+# Get with joins
+posts_with_authors = db.execute('''
+    SELECT p.*, u.name as author_name, u.email as author_email
+    FROM posts p
+    JOIN users u ON p.author_id = u.id
+    WHERE p.published = 1
+    ORDER BY p.created_at DESC
+''').fetchall()
+
+# Count records
+user_count = db.execute('SELECT COUNT(*) as count FROM users').fetchone()
+print('Total users:', user_count[0])
+
+# Aggregate functions
+stats = db.execute('''
+    SELECT 
+        COUNT(*) as total_users,
+        AVG(age) as avg_age,
+        MIN(age) as min_age,
+        MAX(age) as max_age
+    FROM users
+''').fetchone()
+```
+</CodeGroup>
+
+### Updating Data
+
+<CodeGroup>
+```javascript Node.js
+// Update single record
+const result = db.run(`
+    UPDATE users 
+    SET name = ?, age = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+`, ['John Updated', 32, 1]);
+
+console.log('Rows updated:', result.changes);
+
+// Update multiple records
+const updateResult = db.run(`
+    UPDATE users 
+    SET updated_at = CURRENT_TIMESTAMP
+    WHERE created_at < date('now', '-30 days')
+`);
+
+// Update with conditions
+const inactiveUsers = db.run(`
+    UPDATE users 
+    SET status = 'inactive'
+    WHERE last_login < date('now', '-90 days')
+`);
+
+// Update with joins
+const updatePosts = db.run(`
+    UPDATE posts 
+    SET published = 1
+    WHERE author_id IN (
+        SELECT id FROM users WHERE status = 'active'
+    )
+`);
+```
+
+```python Python
+# Update single record
+result = db.execute('''
+    UPDATE users 
+    SET name = ?, age = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+''', ('John Updated', 32, 1))
+
+print('Rows updated:', result.rowcount)
+
+# Update multiple records
+update_result = db.execute('''
+    UPDATE users 
+    SET updated_at = CURRENT_TIMESTAMP
+    WHERE created_at < date('now', '-30 days')
+''')
+
+# Update with conditions
+inactive_users = db.execute('''
+    UPDATE users 
+    SET status = 'inactive'
+    WHERE last_login < date('now', '-90 days')
+''')
+
+# Update with joins
+update_posts = db.execute('''
+    UPDATE posts 
+    SET published = 1
+    WHERE author_id IN (
+        SELECT id FROM users WHERE status = 'active'
+    )
+''')
+```
+</CodeGroup>
+
+### Deleting Data
+
+<CodeGroup>
+```javascript Node.js
+// Delete single record
+const result = db.run('DELETE FROM users WHERE id = ?', [1]);
+console.log('Rows deleted:', result.changes);
+
+// Delete with conditions
+const oldUsers = db.run(`
+    DELETE FROM users 
+    WHERE created_at < date('now', '-1 year')
+`);
+
+// Delete with joins
+const orphanedPosts = db.run(`
+    DELETE FROM posts 
+    WHERE author_id NOT IN (SELECT id FROM users)
+`);
+
+// Soft delete (update instead of delete)
+const softDelete = db.run(`
+    UPDATE users 
+    SET deleted_at = CURRENT_TIMESTAMP, status = 'deleted'
+    WHERE id = ?
+`, [1]);
+```
+
+```python Python
+# Delete single record
+result = db.execute('DELETE FROM users WHERE id = ?', (1,))
+print('Rows deleted:', result.rowcount)
+
+# Delete with conditions
+old_users = db.execute('''
+    DELETE FROM users 
+    WHERE created_at < date('now', '-1 year')
+''')
+
+# Delete with joins
+orphaned_posts = db.execute('''
+    DELETE FROM posts 
+    WHERE author_id NOT IN (SELECT id FROM users)
+''')
+
+# Soft delete (update instead of delete)
+soft_delete = db.execute('''
+    UPDATE users 
+    SET deleted_at = CURRENT_TIMESTAMP, status = 'deleted'
+    WHERE id = ?
+''', (1,))
+```
+</CodeGroup>
+
+## Advanced Querying
+
+### Complex Joins
+
+```sql
+-- Multiple table joins
+SELECT 
+    p.id,
+    p.title,
+    p.content,
+    u.name as author_name,
+    c.name as category_name,
+    COUNT(com.id) as comment_count
+FROM posts p
+JOIN users u ON p.author_id = u.id
+LEFT JOIN categories c ON p.category_id = c.id
+LEFT JOIN comments com ON p.id = com.post_id
+WHERE p.published = 1
+GROUP BY p.id, p.title, p.content, u.name, c.name
+ORDER BY p.created_at DESC;
+
+-- Self-join example
+SELECT 
+    e.name as employee_name,
+    m.name as manager_name,
+    e.department
+FROM employees e
+LEFT JOIN employees m ON e.manager_id = m.id
+ORDER BY e.department, e.name;
+```
+
+### Subqueries
+
+```sql
+-- Subquery in WHERE clause
+SELECT * FROM users 
+WHERE id IN (
+    SELECT DISTINCT author_id 
+    FROM posts 
+    WHERE published = 1
+);
+
+-- Subquery in SELECT clause
+SELECT 
+    name,
+    email,
+    (SELECT COUNT(*) FROM posts WHERE author_id = users.id) as post_count
+FROM users;
+
+-- Correlated subquery
+SELECT 
+    p.title,
+    p.created_at,
+    (SELECT name FROM users WHERE id = p.author_id) as author_name
+FROM posts p
+WHERE p.created_at > (
+    SELECT AVG(created_at) 
+    FROM posts 
+    WHERE author_id = p.author_id
+);
+```
+
+### Window Functions
+
+```sql
+-- Row numbering
+SELECT 
+    name,
+    email,
+    ROW_NUMBER() OVER (ORDER BY created_at) as row_num
+FROM users;
+
+-- Ranking
+SELECT 
+    name,
+    age,
+    RANK() OVER (ORDER BY age DESC) as age_rank,
+    DENSE_RANK() OVER (ORDER BY age DESC) as dense_age_rank
+FROM users;
+
+-- Partitioned ranking
+SELECT 
+    department,
+    name,
+    salary,
+    RANK() OVER (PARTITION BY department ORDER BY salary DESC) as dept_rank
+FROM employees;
+
+-- Running totals
+SELECT 
+    date,
+    amount,
+    SUM(amount) OVER (ORDER BY date) as running_total
+FROM transactions;
+```
+
+## Data Types and Constraints
+
+### Supported Data Types
+
+```sql
+-- Numeric types
+CREATE TABLE numeric_examples (
+    id INTEGER PRIMARY KEY,
+    small_int SMALLINT,
+    big_int BIGINT,
+    real_num REAL,
+    decimal_num DECIMAL(10,2),
+    numeric_num NUMERIC(8,4)
+);
+
+-- Text types
+CREATE TABLE text_examples (
+    id INTEGER PRIMARY KEY,
+    short_text VARCHAR(50),
+    long_text TEXT,
+    char_text CHAR(10),
+    clob_text CLOB
+);
+
+-- Date and time types
+CREATE TABLE datetime_examples (
+    id INTEGER PRIMARY KEY,
+    date_col DATE,
+    time_col TIME,
+    datetime_col DATETIME,
+    timestamp_col TIMESTAMP
+);
+
+-- Binary types
+CREATE TABLE binary_examples (
+    id INTEGER PRIMARY KEY,
+    blob_data BLOB,
+    binary_data BINARY(16)
+);
+
+-- JSON type
+CREATE TABLE json_examples (
+    id INTEGER PRIMARY KEY,
+    json_data JSON,
+    jsonb_data JSONB
+);
+```
+
+### Constraints
+
+```sql
+-- Primary key constraint
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL
+);
+
+-- Foreign key constraint
+CREATE TABLE orders (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER,
+    amount DECIMAL(10,2),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Check constraint
+CREATE TABLE products (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    price DECIMAL(10,2) CHECK (price > 0),
+    stock INTEGER CHECK (stock >= 0),
+    status TEXT CHECK (status IN ('active', 'inactive', 'discontinued'))
+);
+
+-- Unique constraint
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    username TEXT UNIQUE NOT NULL
+);
+
+-- Default values
+CREATE TABLE posts (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    content TEXT,
+    published BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## Indexes and Performance
+
+### Creating Indexes
+
+```sql
+-- Single column index
+CREATE INDEX idx_users_email ON users(email);
+
+-- Composite index
+CREATE INDEX idx_posts_author_date ON posts(author_id, created_at);
+
+-- Unique index
+CREATE UNIQUE INDEX idx_users_username ON users(username);
+
+-- Partial index
+CREATE INDEX idx_active_users ON users(email) WHERE status = 'active';
+
+-- Covering index
+CREATE INDEX idx_posts_covering ON posts(author_id, published, created_at) 
+INCLUDE (title, content);
+```
+
+### Query Optimization
+
+<CodeGroup>
+```javascript Node.js
+// Use prepared statements for repeated queries
+const getUserStmt = db.prepare('SELECT * FROM users WHERE id = ?');
+const user = getUserStmt.get(1);
+
+// Use transactions for multiple operations
+const insertMany = db.transaction((users) => {
+    const stmt = db.prepare('INSERT INTO users (name, email) VALUES (?, ?)');
+    for (const user of users) {
+        stmt.run(user.name, user.email);
+    }
+});
+
+// Use LIMIT for large result sets
+const recentUsers = db.all(`
+    SELECT * FROM users 
+    ORDER BY created_at DESC 
+    LIMIT 100
+`);
+
+// Use pagination
+const getUsersPage = (page, pageSize) => {
+    const offset = (page - 1) * pageSize;
+    return db.all(`
+        SELECT * FROM users 
+        ORDER BY created_at DESC 
+        LIMIT ? OFFSET ?
+    `, [pageSize, offset]);
+};
+```
+
+```python Python
+# Use prepared statements for repeated queries
+get_user_stmt = db.prepare('SELECT * FROM users WHERE id = ?')
+user = get_user_stmt.fetchone(1)
+
+# Use transactions for multiple operations
+def insert_many(users):
+    stmt = db.prepare('INSERT INTO users (name, email) VALUES (?, ?)')
+    for user in users:
+        stmt.execute(user['name'], user['email'])
+
+# Use LIMIT for large result sets
+recent_users = db.execute('''
+    SELECT * FROM users 
+    ORDER BY created_at DESC 
+    LIMIT 100
+''').fetchall()
+
+# Use pagination
+def get_users_page(page, page_size):
+    offset = (page - 1) * page_size
+    return db.execute('''
+        SELECT * FROM users 
+        ORDER BY created_at DESC 
+        LIMIT ? OFFSET ?
+    ''', (page_size, offset)).fetchall()
+```
+</CodeGroup>
+
+## Error Handling
+
+<CodeGroup>
+```javascript Node.js
+try {
+    const result = db.run('INSERT INTO users (name, email) VALUES (?, ?)', 
+                          ['John Doe', 'john@example.com']);
+    console.log('User created with ID:', result.lastInsertRowid);
+} catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT') {
+        if (error.message.includes('UNIQUE constraint failed')) {
+            console.error('User with this email already exists');
+        } else if (error.message.includes('NOT NULL constraint failed')) {
+            console.error('Required fields are missing');
+        } else {
+            console.error('Constraint violation:', error.message);
+        }
+    } else if (error.code === 'SQLITE_BUSY') {
+        console.error('Database is busy, please try again');
+    } else {
+        console.error('Database error:', error.message);
+    }
+}
+```
+
+```python Python
+try:
+    result = db.execute('INSERT INTO users (name, email) VALUES (?, ?)', 
+                        ('John Doe', 'john@example.com'))
+    print('User created with ID:', result.lastrowid)
+except Exception as e:
+    if 'UNIQUE constraint failed' in str(e):
+        print('User with this email already exists')
+    elif 'NOT NULL constraint failed' in str(e):
+        print('Required fields are missing')
+    elif 'database is locked' in str(e):
+        print('Database is busy, please try again')
+    else:
+        print('Database error:', str(e))
+```
+</CodeGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Prepared Statements">
+    Always use prepared statements for repeated queries to improve performance and prevent SQL injection.
+  </Step>
+  <Step title="Create Appropriate Indexes">
+    Create indexes on frequently queried columns and composite indexes for multi-column queries.
+  </Step>
+  <Step title="Handle Errors Gracefully">
+    Implement proper error handling for all database operations with specific error type handling.
+  </Step>
+  <Step title="Use Transactions">
+    Wrap related operations in transactions to maintain data consistency and atomicity.
+  </Step>
+  <Step title="Optimize Queries">
+    Use EXPLAIN QUERY PLAN to analyze and optimize query performance.
+  </Step>
+  <Step title="Limit Result Sets">
+    Use LIMIT and OFFSET for pagination to avoid loading large datasets into memory.
+  </Step>
+  <Step title="Use Appropriate Data Types">
+    Choose the most appropriate data types for your data to optimize storage and performance.
+  </Step>
+  <Step title="Implement Soft Deletes">
+    Consider using soft deletes (status flags) instead of hard deletes for important data.
+  </Step>
+</Steps>
+
+<Note>
+Mastering database operations is fundamental to building robust applications. Always prioritize data integrity, performance, and error handling in your database operations.
+</Note>

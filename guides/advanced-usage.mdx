@@ -1,0 +1,782 @@
+---
+title: "Advanced Usage"
+description: "Advanced MatsushibaDB usage patterns, optimization techniques, and best practices for complex applications."
+---
+
+# Advanced Usage
+
+Master advanced MatsushibaDB techniques for complex applications, performance optimization, and enterprise-grade implementations.
+
+## Advanced Query Patterns
+
+### Complex Joins and Subqueries
+
+```sql
+-- Advanced join patterns
+SELECT 
+    u.id,
+    u.username,
+    u.email,
+    COUNT(p.id) as post_count,
+    COUNT(c.id) as comment_count,
+    MAX(p.created_at) as last_post_date
+FROM users u
+LEFT JOIN posts p ON u.id = p.author_id AND p.published = 1
+LEFT JOIN comments c ON u.id = c.user_id
+WHERE u.status = 'active'
+GROUP BY u.id, u.username, u.email
+HAVING COUNT(p.id) > 0
+ORDER BY post_count DESC, last_post_date DESC;
+
+-- Correlated subqueries
+SELECT 
+    p.title,
+    p.created_at,
+    (SELECT COUNT(*) FROM comments WHERE post_id = p.id) as comment_count,
+    (SELECT username FROM users WHERE id = p.author_id) as author_name
+FROM posts p
+WHERE p.published = 1
+AND p.created_at > (
+    SELECT AVG(created_at) 
+    FROM posts 
+    WHERE author_id = p.author_id
+);
+
+-- Window functions
+SELECT 
+    u.username,
+    p.title,
+    p.created_at,
+    ROW_NUMBER() OVER (PARTITION BY p.author_id ORDER BY p.created_at DESC) as post_rank,
+    RANK() OVER (ORDER BY p.created_at DESC) as global_rank,
+    LAG(p.title, 1) OVER (PARTITION BY p.author_id ORDER BY p.created_at) as previous_post
+FROM posts p
+JOIN users u ON p.author_id = u.id
+WHERE p.published = 1;
+```
+
+### Advanced Data Manipulation
+
+<CodeGroup>
+```javascript Node.js
+// Advanced data operations
+class AdvancedDataOperations {
+    constructor(db) {
+        this.db = db;
+    }
+    
+    // Bulk upsert operation
+    async bulkUpsert(tableName, data, conflictColumns) {
+        try {
+            this.db.run('BEGIN TRANSACTION');
+            
+            const columns = Object.keys(data[0]);
+            const placeholders = columns.map(() => '?').join(', ');
+            const updateClause = columns
+                .filter(col => !conflictColumns.includes(col))
+                .map(col => `${col} = excluded.${col}`)
+                .join(', ');
+            
+            const sql = `
+                INSERT INTO ${tableName} (${columns.join(', ')})
+                VALUES (${placeholders})
+                ON CONFLICT (${conflictColumns.join(', ')})
+                DO UPDATE SET ${updateClause}
+            `;
+            
+            const stmt = this.db.prepare(sql);
+            
+            for (const row of data) {
+                stmt.run(Object.values(row));
+            }
+            
+            stmt.finalize();
+            this.db.run('COMMIT');
+            
+            return { success: true, count: data.length };
+        } catch (error) {
+            this.db.run('ROLLBACK');
+            throw error;
+        }
+    }
+    
+    // Hierarchical data operations
+    async getHierarchicalData(tableName, parentColumn = 'parent_id', idColumn = 'id') {
+        try {
+            // Get all data
+            const allData = this.db.all(`SELECT * FROM ${tableName} ORDER BY ${idColumn}`);
+            
+            // Build hierarchy
+            const hierarchy = this.buildHierarchy(allData, parentColumn, idColumn);
+            
+            return hierarchy;
+        } catch (error) {
+            throw error;
+        }
+    }
+    
+    buildHierarchy(data, parentColumn, idColumn, parentId = null, level = 0) {
+        const result = [];
+        
+        for (const item of data) {
+            if (item[parentColumn] === parentId) {
+                const children = this.buildHierarchy(data, parentColumn, idColumn, item[idColumn], level + 1);
+                result.push({
+                    ...item,
+                    level: level,
+                    children: children
+                });
+            }
+        }
+        
+        return result;
+    }
+    
+    // Data aggregation with multiple levels
+    async getAggregatedData(tableName, groupColumns, aggregateFunctions) {
+        try {
+            const groupClause = groupColumns.join(', ');
+            const aggregateClause = aggregateFunctions.map(func => 
+                `${func.function}(${func.column}) as ${func.alias}`
+            ).join(', ');
+            
+            const sql = `
+                SELECT 
+                    ${groupClause},
+                    ${aggregateClause}
+                FROM ${tableName}
+                GROUP BY ${groupClause}
+                ORDER BY ${groupClause}
+            `;
+            
+            return this.db.all(sql);
+        } catch (error) {
+            throw error;
+        }
+    }
+}
+
+// Usage
+const advancedOps = new AdvancedDataOperations(db);
+
+// Bulk upsert
+const userData = [
+    { id: 1, username: 'john', email: 'john@example.com', status: 'active' },
+    { id: 2, username: 'jane', email: 'jane@example.com', status: 'active' }
+];
+
+await advancedOps.bulkUpsert('users', userData, ['id']);
+
+// Hierarchical data
+const categories = await advancedOps.getHierarchicalData('categories');
+
+// Aggregated data
+const stats = await advancedOps.getAggregatedData('posts', ['author_id', 'published'], [
+    { function: 'COUNT', column: 'id', alias: 'post_count' },
+    { function: 'AVG', column: 'views', alias: 'avg_views' },
+    { function: 'MAX', column: 'created_at', alias: 'last_post' }
+]);
+```
+
+```python Python
+# Advanced data operations
+class AdvancedDataOperations:
+    def __init__(self, db):
+        self.db = db
+    
+    # Bulk upsert operation
+    async def bulk_upsert(self, table_name, data, conflict_columns):
+        try:
+            self.db.execute('BEGIN TRANSACTION')
+            
+            columns = list(data[0].keys())
+            placeholders = ', '.join(['?' for _ in columns])
+            update_clause = ', '.join([
+                f'{col} = excluded.{col}' 
+                for col in columns 
+                if col not in conflict_columns
+            ])
+            
+            sql = f'''
+                INSERT INTO {table_name} ({', '.join(columns)})
+                VALUES ({placeholders})
+                ON CONFLICT ({', '.join(conflict_columns)})
+                DO UPDATE SET {update_clause}
+            '''
+            
+            stmt = self.db.prepare(sql)
+            
+            for row in data:
+                stmt.execute(list(row.values()))
+            
+            stmt.close()
+            self.db.execute('COMMIT')
+            
+            return {'success': True, 'count': len(data)}
+        except Exception as e:
+            self.db.execute('ROLLBACK')
+            raise e
+    
+    # Hierarchical data operations
+    async def get_hierarchical_data(self, table_name, parent_column='parent_id', id_column='id'):
+        try:
+            # Get all data
+            all_data = self.db.execute(f'SELECT * FROM {table_name} ORDER BY {id_column}').fetchall()
+            
+            # Build hierarchy
+            hierarchy = self.build_hierarchy(all_data, parent_column, id_column)
+            
+            return hierarchy
+        except Exception as e:
+            raise e
+    
+    def build_hierarchy(self, data, parent_column, id_column, parent_id=None, level=0):
+        result = []
+        
+        for item in data:
+            if item[parent_column] == parent_id:
+                children = self.build_hierarchy(data, parent_column, id_column, item[id_column], level + 1)
+                result.append({
+                    **item,
+                    'level': level,
+                    'children': children
+                })
+        
+        return result
+    
+    # Data aggregation with multiple levels
+    async def get_aggregated_data(self, table_name, group_columns, aggregate_functions):
+        try:
+            group_clause = ', '.join(group_columns)
+            aggregate_clause = ', '.join([
+                f'{func["function"]}({func["column"]}) as {func["alias"]}'
+                for func in aggregate_functions
+            ])
+            
+            sql = f'''
+                SELECT 
+                    {group_clause},
+                    {aggregate_clause}
+                FROM {table_name}
+                GROUP BY {group_clause}
+                ORDER BY {group_clause}
+            '''
+            
+            return self.db.execute(sql).fetchall()
+        except Exception as e:
+            raise e
+
+# Usage
+advanced_ops = AdvancedDataOperations(db)
+
+# Bulk upsert
+user_data = [
+    {'id': 1, 'username': 'john', 'email': 'john@example.com', 'status': 'active'},
+    {'id': 2, 'username': 'jane', 'email': 'jane@example.com', 'status': 'active'}
+]
+
+await advanced_ops.bulk_upsert('users', user_data, ['id'])
+
+# Hierarchical data
+categories = await advanced_ops.get_hierarchical_data('categories')
+
+# Aggregated data
+stats = await advanced_ops.get_aggregated_data('posts', ['author_id', 'published'], [
+    {'function': 'COUNT', 'column': 'id', 'alias': 'post_count'},
+    {'function': 'AVG', 'column': 'views', 'alias': 'avg_views'},
+    {'function': 'MAX', 'column': 'created_at', 'alias': 'last_post'}
+])
+```
+</CodeGroup>
+
+## Performance Optimization
+
+### Query Optimization Techniques
+
+<CodeGroup>
+```javascript Node.js
+// Advanced query optimizer
+class AdvancedQueryOptimizer {
+    constructor(db) {
+        this.db = db;
+        this.queryCache = new Map();
+        this.performanceMetrics = new Map();
+    }
+    
+    // Optimized pagination with cursor-based approach
+    async getPaginatedData(tableName, cursor, limit, orderBy = 'id') {
+        try {
+            const whereClause = cursor ? `WHERE ${orderBy} < ?` : '';
+            const params = cursor ? [cursor, limit] : [limit];
+            
+            const sql = `
+                SELECT * FROM ${tableName}
+                ${whereClause}
+                ORDER BY ${orderBy} DESC
+                LIMIT ?
+            `;
+            
+            const results = this.db.all(sql, params);
+            
+            // Get next cursor
+            const nextCursor = results.length > 0 ? results[results.length - 1][orderBy] : null;
+            
+            return {
+                data: results,
+                nextCursor: nextCursor,
+                hasMore: results.length === limit
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+    
+    // Batch processing for large datasets
+    async processLargeDataset(sql, params, batchSize = 1000, processor) {
+        try {
+            let offset = 0;
+            let totalProcessed = 0;
+            
+            while (true) {
+                const batchSql = `${sql} LIMIT ? OFFSET ?`;
+                const batchParams = [...params, batchSize, offset];
+                
+                const batch = this.db.all(batchSql, batchParams);
+                
+                if (batch.length === 0) {
+                    break;
+                }
+                
+                await processor(batch);
+                totalProcessed += batch.length;
+                offset += batchSize;
+                
+                // Force garbage collection if available
+                if (global.gc) {
+                    global.gc();
+                }
+            }
+            
+            return { totalProcessed };
+        } catch (error) {
+            throw error;
+        }
+    }
+    
+    // Query result caching
+    async getCachedQuery(sql, params, ttl = 300000) {
+        const cacheKey = `${sql}:${JSON.stringify(params)}`;
+        const cached = this.queryCache.get(cacheKey);
+        
+        if (cached && Date.now() - cached.timestamp < ttl) {
+            return cached.data;
+        }
+        
+        const result = this.db.all(sql, params);
+        this.queryCache.set(cacheKey, {
+            data: result,
+            timestamp: Date.now()
+        });
+        
+        return result;
+    }
+    
+    // Performance monitoring
+    monitorQuery(sql, params, operation) {
+        const startTime = Date.now();
+        
+        try {
+            const result = operation();
+            const executionTime = Date.now() - startTime;
+            
+            // Store performance metrics
+            const key = `${sql}:${JSON.stringify(params)}`;
+            const metrics = this.performanceMetrics.get(key) || {
+                count: 0,
+                totalTime: 0,
+                averageTime: 0,
+                minTime: Infinity,
+                maxTime: 0
+            };
+            
+            metrics.count++;
+            metrics.totalTime += executionTime;
+            metrics.averageTime = metrics.totalTime / metrics.count;
+            metrics.minTime = Math.min(metrics.minTime, executionTime);
+            metrics.maxTime = Math.max(metrics.maxTime, executionTime);
+            
+            this.performanceMetrics.set(key, metrics);
+            
+            return result;
+        } catch (error) {
+            throw error;
+        }
+    }
+    
+    // Get performance report
+    getPerformanceReport() {
+        const report = [];
+        
+        for (const [query, metrics] of this.performanceMetrics) {
+            report.push({
+                query: query,
+                ...metrics,
+                efficiency: metrics.averageTime < 100 ? 'good' : metrics.averageTime < 1000 ? 'fair' : 'poor'
+            });
+        }
+        
+        return report.sort((a, b) => b.averageTime - a.averageTime);
+    }
+}
+
+// Usage
+const optimizer = new AdvancedQueryOptimizer(db);
+
+// Cursor-based pagination
+const page1 = await optimizer.getPaginatedData('users', null, 10, 'created_at');
+const page2 = await optimizer.getPaginatedData('users', page1.nextCursor, 10, 'created_at');
+
+// Batch processing
+await optimizer.processLargeDataset(
+    'SELECT * FROM large_table WHERE status = ?',
+    ['active'],
+    1000,
+    async (batch) => {
+        console.log(`Processing ${batch.length} records`);
+        // Process batch
+    }
+);
+
+// Cached queries
+const users = await optimizer.getCachedQuery('SELECT * FROM users WHERE active = ?', [1]);
+```
+
+```python Python
+# Advanced query optimizer
+class AdvancedQueryOptimizer:
+    def __init__(self, db):
+        self.db = db
+        self.query_cache = {}
+        self.performance_metrics = {}
+    
+    # Optimized pagination with cursor-based approach
+    async def get_paginated_data(self, table_name, cursor, limit, order_by='id'):
+        try:
+            where_clause = f'WHERE {order_by} < ?' if cursor else ''
+            params = (cursor, limit) if cursor else (limit,)
+            
+            sql = f'''
+                SELECT * FROM {table_name}
+                {where_clause}
+                ORDER BY {order_by} DESC
+                LIMIT ?
+            '''
+            
+            results = self.db.execute(sql, params).fetchall()
+            
+            # Get next cursor
+            next_cursor = results[-1][order_by] if results else None
+            
+            return {
+                'data': results,
+                'next_cursor': next_cursor,
+                'has_more': len(results) == limit
+            }
+        except Exception as e:
+            raise e
+    
+    # Batch processing for large datasets
+    async def process_large_dataset(self, sql, params, batch_size=1000, processor=None):
+        try:
+            offset = 0
+            total_processed = 0
+            
+            while True:
+                batch_sql = f'{sql} LIMIT ? OFFSET ?'
+                batch_params = (*params, batch_size, offset)
+                
+                batch = self.db.execute(batch_sql, batch_params).fetchall()
+                
+                if not batch:
+                    break
+                
+                if processor:
+                    await processor(batch)
+                
+                total_processed += len(batch)
+                offset += batch_size
+                
+                # Force garbage collection
+                import gc
+                gc.collect()
+            
+            return {'total_processed': total_processed}
+        except Exception as e:
+            raise e
+    
+    # Query result caching
+    async def get_cached_query(self, sql, params, ttl=300):
+        import time
+        cache_key = f'{sql}:{str(params)}'
+        cached = self.query_cache.get(cache_key)
+        
+        if cached and time.time() - cached['timestamp'] < ttl:
+            return cached['data']
+        
+        result = self.db.execute(sql, params).fetchall()
+        self.query_cache[cache_key] = {
+            'data': result,
+            'timestamp': time.time()
+        }
+        
+        return result
+    
+    # Performance monitoring
+    def monitor_query(self, sql, params, operation):
+        import time
+        start_time = time.time()
+        
+        try:
+            result = operation()
+            execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+            
+            # Store performance metrics
+            key = f'{sql}:{str(params)}'
+            metrics = self.performance_metrics.get(key, {
+                'count': 0,
+                'total_time': 0,
+                'average_time': 0,
+                'min_time': float('inf'),
+                'max_time': 0
+            })
+            
+            metrics['count'] += 1
+            metrics['total_time'] += execution_time
+            metrics['average_time'] = metrics['total_time'] / metrics['count']
+            metrics['min_time'] = min(metrics['min_time'], execution_time)
+            metrics['max_time'] = max(metrics['max_time'], execution_time)
+            
+            self.performance_metrics[key] = metrics
+            
+            return result
+        except Exception as e:
+            raise e
+    
+    # Get performance report
+    def get_performance_report(self):
+        report = []
+        
+        for query, metrics in self.performance_metrics.items():
+            efficiency = 'good' if metrics['average_time'] < 100 else 'fair' if metrics['average_time'] < 1000 else 'poor'
+            report.append({
+                'query': query,
+                **metrics,
+                'efficiency': efficiency
+            })
+        
+        return sorted(report, key=lambda x: x['average_time'], reverse=True)
+
+# Usage
+optimizer = AdvancedQueryOptimizer(db)
+
+# Cursor-based pagination
+page1 = await optimizer.get_paginated_data('users', None, 10, 'created_at')
+page2 = await optimizer.get_paginated_data('users', page1['next_cursor'], 10, 'created_at')
+
+# Batch processing
+await optimizer.process_large_dataset(
+    'SELECT * FROM large_table WHERE status = ?',
+    ('active',),
+    1000,
+    lambda batch: print(f'Processing {len(batch)} records')
+)
+
+# Cached queries
+users = await optimizer.get_cached_query('SELECT * FROM users WHERE active = ?', (1,))
+```
+</CodeGroup>
+
+## Advanced Security
+
+### Row-Level Security
+
+<CodeGroup>
+```javascript Node.js
+// Row-level security implementation
+class RowLevelSecurity {
+    constructor(db) {
+        this.db = db;
+        this.securityPolicies = new Map();
+    }
+    
+    // Define security policy
+    definePolicy(tableName, policyName, policyFunction) {
+        if (!this.securityPolicies.has(tableName)) {
+            this.securityPolicies.set(tableName, new Map());
+        }
+        
+        this.securityPolicies.get(tableName).set(policyName, policyFunction);
+    }
+    
+    // Apply security filter
+    applySecurityFilter(tableName, userId, baseQuery) {
+        const policies = this.securityPolicies.get(tableName);
+        
+        if (!policies) {
+            return baseQuery;
+        }
+        
+        let securityConditions = [];
+        
+        for (const [policyName, policyFunction] of policies) {
+            const condition = policyFunction(userId);
+            if (condition) {
+                securityConditions.push(condition);
+            }
+        }
+        
+        if (securityConditions.length === 0) {
+            return baseQuery;
+        }
+        
+        const whereClause = securityConditions.join(' AND ');
+        return `${baseQuery} WHERE ${whereClause}`;
+    }
+    
+    // Secure query execution
+    async secureQuery(sql, params, userId) {
+        try {
+            // Extract table name from query (simplified)
+            const tableMatch = sql.match(/FROM\s+(\w+)/i);
+            if (tableMatch) {
+                const tableName = tableMatch[1];
+                const securedSql = this.applySecurityFilter(tableName, userId, sql);
+                
+                return this.db.all(securedSql, params);
+            }
+            
+            return this.db.all(sql, params);
+        } catch (error) {
+            throw error;
+        }
+    }
+}
+
+// Usage
+const rls = new RowLevelSecurity(db);
+
+// Define policies
+rls.definePolicy('posts', 'user_posts', (userId) => {
+    return `author_id = ${userId} OR published = 1`;
+});
+
+rls.definePolicy('users', 'user_profile', (userId) => {
+    return `id = ${userId} OR status = 'public'`;
+});
+
+// Secure queries
+const userPosts = await rls.secureQuery(
+    'SELECT * FROM posts ORDER BY created_at DESC',
+    [],
+    userId
+);
+```
+
+```python Python
+# Row-level security implementation
+class RowLevelSecurity:
+    def __init__(self, db):
+        self.db = db
+        self.security_policies = {}
+    
+    # Define security policy
+    def define_policy(self, table_name, policy_name, policy_function):
+        if table_name not in self.security_policies:
+            self.security_policies[table_name] = {}
+        
+        self.security_policies[table_name][policy_name] = policy_function
+    
+    # Apply security filter
+    def apply_security_filter(self, table_name, user_id, base_query):
+        policies = self.security_policies.get(table_name, {})
+        
+        if not policies:
+            return base_query
+        
+        security_conditions = []
+        
+        for policy_name, policy_function in policies.items():
+            condition = policy_function(user_id)
+            if condition:
+                security_conditions.append(condition)
+        
+        if not security_conditions:
+            return base_query
+        
+        where_clause = ' AND '.join(security_conditions)
+        return f'{base_query} WHERE {where_clause}'
+    
+    # Secure query execution
+    async def secure_query(self, sql, params, user_id):
+        try:
+            # Extract table name from query (simplified)
+            import re
+            table_match = re.search(r'FROM\s+(\w+)', sql, re.IGNORECASE)
+            if table_match:
+                table_name = table_match.group(1)
+                secured_sql = self.apply_security_filter(table_name, user_id, sql)
+                
+                return self.db.execute(secured_sql, params).fetchall()
+            
+            return self.db.execute(sql, params).fetchall()
+        except Exception as e:
+            raise e
+
+# Usage
+rls = RowLevelSecurity(db)
+
+# Define policies
+rls.define_policy('posts', 'user_posts', lambda user_id: f'author_id = {user_id} OR published = 1')
+rls.define_policy('users', 'user_profile', lambda user_id: f'id = {user_id} OR status = "public"')
+
+# Secure queries
+user_posts = await rls.secure_query(
+    'SELECT * FROM posts ORDER BY created_at DESC',
+    (),
+    user_id
+)
+```
+</CodeGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Advanced Query Patterns">
+    Implement complex joins, subqueries, and window functions for sophisticated data analysis.
+  </Step>
+  <Step title="Optimize for Performance">
+    Use cursor-based pagination, batch processing, and query caching for large datasets.
+  </Step>
+  <Step title="Implement Security Layers">
+    Use row-level security and advanced authentication for sensitive data.
+  </Step>
+  <Step title="Monitor Performance">
+    Track query performance and optimize based on real usage patterns.
+  </Step>
+  <Step title="Use Transactions Wisely">
+    Implement proper transaction management for complex operations.
+  </Step>
+  <Step title="Plan for Scale">
+    Design your database schema and queries with future growth in mind.
+  </Step>
+  <Step title="Regular Maintenance">
+    Perform regular database maintenance and optimization tasks.
+  </Step>
+  <Step title="Document Complex Logic">
+    Document advanced patterns and custom implementations for team knowledge.
+  </Step>
+</Steps>
+
+<Note>
+Advanced usage patterns require careful planning and testing. Always profile your queries, implement proper error handling, and consider the long-term maintainability of your solutions.
+</Note>

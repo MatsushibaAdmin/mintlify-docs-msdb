@@ -1,0 +1,310 @@
+---
+title: "Getting Started"
+description: "Complete guide to getting started with MatsushibaDB. Learn installation, basic setup, and your first database operations."
+---
+
+# Getting Started with MatsushibaDB
+
+Welcome to MatsushibaDB! This guide will help you get up and running quickly with your first database operations.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- **Node.js** 16+ or **Python** 3.8+ (depending on your preferred platform)
+- **Docker** (optional, for containerized deployment)
+- Basic knowledge of databases and SQL
+
+## Installation Options
+
+Choose your preferred installation method:
+
+<CardGroup cols={3}>
+  <Card title="NPM Package" icon="npm" href="/installation/npm">
+    Perfect for Node.js applications
+  </Card>
+  <Card title="Python Package" icon="python" href="/installation/python">
+    Ideal for Python applications
+  </Card>
+  <Card title="Docker Container" icon="docker" href="/installation/docker">
+    Great for any environment
+  </Card>
+</CardGroup>
+
+## Quick Installation
+
+### Node.js (NPM)
+
+```bash
+npm install matsushibadb
+```
+
+### Python (pip)
+
+```bash
+pip install matsushibadb
+```
+
+### Docker
+
+```bash
+docker run -d -p 8000:8000 --name matsushiba-db matsushibadb/matsushibadb:latest
+```
+
+## Your First Database
+
+Let's create your first database and perform some basic operations:
+
+<CodeGroup>
+```javascript Node.js
+const MatsushibaDB = require('matsushibadb');
+
+// Create a new database
+const db = new MatsushibaDB('my-first-db.db');
+
+// Create a table
+db.run(`
+  CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// Insert data
+db.run('INSERT INTO users (name, email) VALUES (?, ?)', 
+       ['John Doe', 'john@example.com']);
+
+// Query data
+const users = db.all('SELECT * FROM users');
+console.log('Users:', users);
+
+// Close the database
+db.close();
+```
+
+```python Python
+import matsushibadb
+
+# Create a new database
+db = matsushibadb.MatsushibaDB('my-first-db.db')
+
+# Create a table
+db.execute('''
+    CREATE TABLE users (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+''')
+
+# Insert data
+db.execute('INSERT INTO users (name, email) VALUES (?, ?)', 
+           ('John Doe', 'john@example.com'))
+
+# Query data
+users = db.execute('SELECT * FROM users').fetchall()
+print('Users:', users)
+
+# Close the database
+db.close()
+```
+</CodeGroup>
+
+## Understanding the Basics
+
+### Database Operations
+
+MatsushibaDB supports all standard SQL operations:
+
+- **CREATE**: Create tables, indexes, and views
+- **INSERT**: Add new records
+- **SELECT**: Query data with complex conditions
+- **UPDATE**: Modify existing records
+- **DELETE**: Remove records
+- **DROP**: Remove tables and structures
+
+### Data Types
+
+MatsushibaDB supports comprehensive data types:
+
+- **INTEGER**: Whole numbers
+- **REAL**: Floating-point numbers
+- **TEXT**: String data
+- **BLOB**: Binary data
+- **DATETIME**: Date and time values
+- **JSON**: Structured JSON data
+
+### Transactions
+
+Ensure data consistency with transactions:
+
+<CodeGroup>
+```javascript Node.js
+// Begin transaction
+db.run('BEGIN TRANSACTION');
+
+try {
+  // Multiple operations
+  db.run('INSERT INTO users (name, email) VALUES (?, ?)', 
+         ['Alice', 'alice@example.com']);
+  db.run('INSERT INTO users (name, email) VALUES (?, ?)', 
+         ['Bob', 'bob@example.com']);
+  
+  // Commit if successful
+  db.run('COMMIT');
+} catch (error) {
+  // Rollback on error
+  db.run('ROLLBACK');
+  throw error;
+}
+```
+
+```python Python
+# Begin transaction
+db.execute('BEGIN TRANSACTION')
+
+try:
+    # Multiple operations
+    db.execute('INSERT INTO users (name, email) VALUES (?, ?)', 
+               ('Alice', 'alice@example.com'))
+    db.execute('INSERT INTO users (name, email) VALUES (?, ?)', 
+               ('Bob', 'bob@example.com'))
+    
+    # Commit if successful
+    db.execute('COMMIT')
+except Exception as e:
+    # Rollback on error
+    db.execute('ROLLBACK')
+    raise e
+```
+</CodeGroup>
+
+## Next Steps
+
+Now that you have the basics, explore these topics:
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book" href="/core-concepts/database-operations">
+    Learn about database operations, transactions, and data types
+  </Card>
+  <Card title="Security" icon="shield" href="/core-concepts/security">
+    Implement authentication, authorization, and encryption
+  </Card>
+  <Card title="Performance" icon="chart-line" href="/core-concepts/performance">
+    Optimize your database for maximum performance
+  </Card>
+  <Card title="Framework Integration" icon="code" href="/guides/framework-integrations">
+    Integrate with Express.js, FastAPI, Django, and more
+  </Card>
+</CardGroup>
+
+## Common Patterns
+
+### Connection Management
+
+<CodeGroup>
+```javascript Node.js
+// Single connection
+const db = new MatsushibaDB('app.db');
+
+// Connection pooling for production
+const { MatsushibaPool } = require('matsushibadb');
+const pool = new MatsushibaPool({
+  database: 'app.db',
+  min: 5,
+  max: 20
+});
+
+// Use pool
+const connection = await pool.acquire();
+try {
+  const result = connection.all('SELECT * FROM users');
+  return result;
+} finally {
+  pool.release(connection);
+}
+```
+
+```python Python
+# Single connection
+db = matsushibadb.MatsushibaDB('app.db')
+
+# Connection pooling for production
+from matsushibadb import MatsushibaPool
+
+pool = MatsushibaPool(
+    database='app.db',
+    min_connections=5,
+    max_connections=20
+)
+
+# Use pool
+with pool.get_connection() as conn:
+    result = conn.execute('SELECT * FROM users').fetchall()
+    return result
+```
+</CodeGroup>
+
+### Error Handling
+
+<CodeGroup>
+```javascript Node.js
+try {
+  const result = db.run('INSERT INTO users (name, email) VALUES (?, ?)', 
+                        ['John', 'john@example.com']);
+  console.log('User created with ID:', result.lastInsertRowid);
+} catch (error) {
+  if (error.code === 'SQLITE_CONSTRAINT') {
+    console.error('User with this email already exists');
+  } else {
+    console.error('Database error:', error.message);
+  }
+}
+```
+
+```python Python
+try:
+    result = db.execute('INSERT INTO users (name, email) VALUES (?, ?)', 
+                        ('John', 'john@example.com'))
+    print('User created with ID:', result.lastrowid)
+except Exception as e:
+    if 'UNIQUE constraint failed' in str(e):
+        print('User with this email already exists')
+    else:
+        print('Database error:', str(e))
+```
+</CodeGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Prepared Statements">
+    Always use parameterized queries to prevent SQL injection and improve performance.
+  </Step>
+  <Step title="Handle Errors Gracefully">
+    Implement proper error handling for all database operations.
+  </Step>
+  <Step title="Use Transactions">
+    Wrap related operations in transactions to maintain data consistency.
+  </Step>
+  <Step title="Optimize Queries">
+    Use indexes and query optimization techniques for better performance.
+  </Step>
+  <Step title="Monitor Performance">
+    Track query performance and database health metrics.
+  </Step>
+</Steps>
+
+## Need Help?
+
+- **Documentation**: Browse our comprehensive guides
+- **Examples**: Check out real-world examples
+- **Community**: Join our Discord server
+- **Support**: Get help from our support team
+
+<Note>
+This is just the beginning! MatsushibaDB offers many advanced features including real-time capabilities, advanced security, and enterprise-grade monitoring. Explore our documentation to unlock its full potential.
+</Note>

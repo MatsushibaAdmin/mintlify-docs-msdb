@@ -1,0 +1,1345 @@
+---
+title: "Docker Installation"
+description: "Complete guide to installing and using MatsushibaDB with Docker. Includes container deployment, orchestration, and production configurations."
+---
+
+# Docker Installation
+
+Deploy MatsushibaDB using Docker containers for consistent, scalable, and portable database solutions across any environment.
+
+## Quick Start
+
+### Basic Docker Run
+
+```bash
+# Run MatsushibaDB container
+docker run -d \
+  --name matsushiba-db \
+  -p 8000:8000 \
+  -v matsushiba-data:/data \
+  matsushibadb/matsushibadb:latest
+```
+
+### Docker Compose
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  matsushiba-db:
+    image: matsushibadb/matsushibadb:latest
+    container_name: matsushiba-db
+    ports:
+      - "8000:8000"
+    volumes:
+      - matsushiba-data:/data
+    environment:
+      - NODE_ENV=production
+      - DATABASE_PATH=/data/production.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  matsushiba-data:
+    driver: local
+```
+
+## Container Variants
+
+### Standard Container
+
+```bash
+# Latest stable release
+docker pull matsushibadb/matsushibadb:latest
+
+# Specific version
+docker pull matsushibadb/matsushibadb:1.0.9
+
+# Run with custom configuration
+docker run -d \
+  --name matsushiba-db \
+  -p 8000:8000 \
+  -v $(pwd)/data:/data \
+  -e DATABASE_PATH=/data/app.db \
+  -e ENABLE_WAL=true \
+  -e CACHE_SIZE=2000 \
+  matsushibadb/matsushibadb:latest
+```
+
+### Development Container
+
+```bash
+# Development container with debugging tools
+docker run -d \
+  --name matsushiba-dev \
+  -p 8000:8000 \
+  -p 9229:9229 \
+  -v $(pwd)/src:/app/src \
+  -v $(pwd)/data:/data \
+  -e NODE_ENV=development \
+  -e DEBUG=true \
+  matsushibadb/matsushibadb:dev
+```
+
+### Minimal Container
+
+```bash
+# Minimal container for resource-constrained environments
+docker run -d \
+  --name matsushiba-minimal \
+  -p 8000:8000 \
+  -v matsushiba-data:/data \
+  matsushibadb/matsushibadb:minimal
+```
+
+### Distroless Container
+
+```bash
+# Distroless container for enhanced security
+docker run -d \
+  --name matsushiba-secure \
+  -p 8000:8000 \
+  -v matsushiba-data:/data \
+  matsushibadb/matsushibadb:distroless
+```
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# Database configuration
+DATABASE_PATH=/data/production.db
+ENABLE_WAL=true
+CACHE_SIZE=2000
+SYNCHRONOUS=NORMAL
+JOURNAL_MODE=WAL
+TEMP_STORE=MEMORY
+
+# Security configuration
+JWT_SECRET=your-jwt-secret-key
+ENABLE_ENCRYPTION=true
+ENCRYPTION_KEY=your-encryption-key
+ENABLE_AUDIT_LOGGING=true
+
+# Performance configuration
+MAX_CONNECTIONS=100
+CONNECTION_TIMEOUT=30000
+QUERY_TIMEOUT=30000
+ENABLE_QUERY_CACHE=true
+QUERY_CACHE_SIZE=1000
+
+# Logging configuration
+LOG_LEVEL=info
+LOG_FORMAT=json
+LOG_FILE=/var/log/matsushiba.log
+
+# Network configuration
+HOST=0.0.0.0
+PORT=8000
+CORS_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
+```
+
+### Custom Configuration File
+
+```yaml
+# config.yml
+database:
+  path: /data/production.db
+  enable_wal: true
+  cache_size: 2000
+  synchronous: NORMAL
+  journal_mode: WAL
+  temp_store: MEMORY
+
+security:
+  jwt_secret: ${JWT_SECRET}
+  enable_encryption: true
+  encryption_key: ${ENCRYPTION_KEY}
+  enable_audit_logging: true
+
+performance:
+  max_connections: 100
+  connection_timeout: 30000
+  query_timeout: 30000
+  enable_query_cache: true
+  query_cache_size: 1000
+
+logging:
+  level: info
+  format: json
+  file: /var/log/matsushiba.log
+
+network:
+  host: 0.0.0.0
+  port: 8000
+  cors_origins:
+    - https://yourdomain.com
+    - https://app.yourdomain.com
+```
+
+```bash
+# Run with custom config
+docker run -d \
+  --name matsushiba-db \
+  -p 8000:8000 \
+  -v $(pwd)/config.yml:/app/config.yml \
+  -v matsushiba-data:/data \
+  matsushibadb/matsushibadb:latest
+```
+
+## Production Deployment
+
+### Docker Compose for Production
+
+```yaml
+# docker-compose.prod.yml
+version: '3.8'
+
+services:
+  matsushiba-app:
+    image: matsushibadb/matsushibadb:latest
+    container_name: matsushiba-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_PATH=/data/production.db
+      - JWT_SECRET=${JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - LOG_LEVEL=info
+    volumes:
+      - matsushiba-data:/data
+      - ./logs:/var/log
+    depends_on:
+      - redis
+      - nginx
+    networks:
+      - matsushiba-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: matsushiba-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    networks:
+      - matsushiba-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  nginx:
+    image: nginx:alpine
+    container_name: matsushiba-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - matsushiba-app
+    networks:
+      - matsushiba-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: matsushiba-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - matsushiba-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: matsushiba-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - matsushiba-network
+
+volumes:
+  matsushiba-data:
+    driver: local
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  matsushiba-network:
+    driver: bridge
+```
+
+### Nginx Configuration
+
+```nginx
+# nginx/nginx.conf
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Logging
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+
+    # Performance
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    client_max_body_size 10M;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/json
+        application/javascript
+        application/xml+rss
+        application/atom+xml
+        image/svg+xml;
+
+    # Rate limiting
+    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+    limit_req_zone $binary_remote_addr zone=login:10m rate=5r/m;
+
+    # Upstream
+    upstream matsushiba_backend {
+        server matsushiba-app:8000;
+        keepalive 32;
+    }
+
+    # HTTP server (redirect to HTTPS)
+    server {
+        listen 80;
+        server_name your-domain.com www.your-domain.com;
+        return 301 https://$server_name$request_uri;
+    }
+
+    # HTTPS server
+    server {
+        listen 443 ssl http2;
+        server_name your-domain.com www.your-domain.com;
+
+        # SSL configuration
+        ssl_certificate /etc/nginx/ssl/cert.pem;
+        ssl_certificate_key /etc/nginx/ssl/key.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+
+        # Security headers
+        add_header X-Frame-Options DENY;
+        add_header X-Content-Type-Options nosniff;
+        add_header X-XSS-Protection "1; mode=block";
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+        # API routes
+        location /api/ {
+            limit_req zone=api burst=20 nodelay;
+            proxy_pass http://matsushiba_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 75s;
+        }
+
+        # Login endpoint with stricter rate limiting
+        location /api/auth/login {
+            limit_req zone=login burst=5 nodelay;
+            proxy_pass http://matsushiba_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Health check
+        location /health {
+            proxy_pass http://matsushiba_backend;
+            access_log off;
+        }
+
+        # Static files
+        location /static/ {
+            alias /app/public/;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+}
+```
+
+## Kubernetes Deployment
+
+### Kubernetes Manifests
+
+```yaml
+# k8s/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: matsushiba
+  labels:
+    name: matsushiba
+
+---
+# k8s/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: matsushiba-config
+  namespace: matsushiba
+data:
+  NODE_ENV: "production"
+  DATABASE_PATH: "/data/production.db"
+  LOG_LEVEL: "info"
+  REDIS_URL: "redis://matsushiba-redis:6379"
+
+---
+# k8s/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: matsushiba-secrets
+  namespace: matsushiba
+type: Opaque
+data:
+  JWT_SECRET: <base64-encoded-jwt-secret>
+  REDIS_PASSWORD: <base64-encoded-redis-password>
+  GRAFANA_PASSWORD: <base64-encoded-grafana-password>
+
+---
+# k8s/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: matsushiba-pv
+  namespace: matsushiba
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: matsushiba-storage
+  hostPath:
+    path: /data/matsushiba
+
+---
+# k8s/persistent-volume-claim.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: matsushiba-pvc
+  namespace: matsushiba
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: matsushiba-storage
+
+---
+# k8s/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matsushiba-app
+  namespace: matsushiba
+  labels:
+    app: matsushiba-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: matsushiba-app
+  template:
+    metadata:
+      labels:
+        app: matsushiba-app
+    spec:
+      containers:
+      - name: matsushiba-app
+        image: matsushibadb/matsushibadb:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-config
+              key: NODE_ENV
+        - name: DATABASE_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-config
+              key: DATABASE_PATH
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: matsushiba-secrets
+              key: JWT_SECRET
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: matsushiba-config
+              key: REDIS_URL
+        volumeMounts:
+        - name: data-volume
+          mountPath: /data
+        - name: logs-volume
+          mountPath: /var/log
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: matsushiba-pvc
+      - name: logs-volume
+        emptyDir: {}
+      imagePullSecrets:
+      - name: registry-secret
+
+---
+# k8s/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: matsushiba-service
+  namespace: matsushiba
+spec:
+  selector:
+    app: matsushiba-app
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+  type: ClusterIP
+
+---
+# k8s/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: matsushiba-ingress
+  namespace: matsushiba
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  tls:
+  - hosts:
+    - your-domain.com
+    secretName: matsushiba-tls
+  rules:
+  - host: your-domain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: matsushiba-service
+            port:
+              number: 80
+
+---
+# k8s/hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: matsushiba-hpa
+  namespace: matsushiba
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: matsushiba-app
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+```
+
+### Helm Chart
+
+```yaml
+# helm/matsushiba/Chart.yaml
+apiVersion: v2
+name: matsushiba
+description: MatsushibaDB Application Helm Chart
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+---
+# helm/matsushiba/values.yaml
+replicaCount: 3
+
+image:
+  repository: matsushibadb/matsushibadb
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: your-domain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: matsushiba-tls
+      hosts:
+        - your-domain.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+persistence:
+  enabled: true
+  storageClass: matsushiba-storage
+  accessMode: ReadWriteOnce
+  size: 10Gi
+
+config:
+  NODE_ENV: production
+  DATABASE_PATH: /data/production.db
+  LOG_LEVEL: info
+  REDIS_URL: redis://matsushiba-redis:6379
+
+secrets:
+  JWT_SECRET: ""
+  REDIS_PASSWORD: ""
+  GRAFANA_PASSWORD: ""
+
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+  grafana:
+    enabled: true
+```
+
+## Cloud Platform Deployment
+
+### AWS ECS Deployment
+
+```json
+// aws/ecs-task-definition.json
+{
+  "family": "matsushiba-app",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::account:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::account:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "matsushiba-app",
+      "image": "your-account.dkr.ecr.region.amazonaws.com/matsushibadb:latest",
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "DATABASE_PATH",
+          "value": "/data/production.db"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:region:account:secret:matsushiba/jwt-secret"
+        },
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "arn:aws:secretsmanager:region:account:secret:matsushiba/redis-url"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/matsushiba-app",
+          "awslogs-region": "us-west-2",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:8000/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "mountPoints": [
+        {
+          "sourceVolume": "data",
+          "containerPath": "/data",
+          "readOnly": false
+        }
+      ]
+    }
+  ],
+  "volumes": [
+    {
+      "name": "data",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-12345678",
+        "rootDirectory": "/matsushiba",
+        "transitEncryption": "ENABLED"
+      }
+    }
+  ]
+}
+```
+
+### Google Cloud Run
+
+```yaml
+# gcp/cloud-run.yaml
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: matsushiba-app
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/execution-environment: gen2
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: "10"
+        autoscaling.knative.dev/minScale: "1"
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 100
+      timeoutSeconds: 300
+      containers:
+      - image: gcr.io/your-project/matsushibadb:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DATABASE_PATH
+          value: "/data/production.db"
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: matsushiba-secrets
+              key: jwt-secret
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: matsushiba-secrets
+              key: redis-url
+        resources:
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+          requests:
+            cpu: "1"
+            memory: "1Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+```
+
+### Azure Container Instances
+
+```yaml
+# azure/container-instance.yaml
+apiVersion: 2019-12-01
+location: eastus
+name: matsushiba-app
+properties:
+  containers:
+  - name: matsushiba-app
+    properties:
+      image: your-registry.azurecr.io/matsushibadb:latest
+      ports:
+      - port: 8000
+        protocol: TCP
+      environmentVariables:
+      - name: NODE_ENV
+        value: production
+      - name: DATABASE_PATH
+        value: /data/production.db
+      - name: JWT_SECRET
+        secureValue: your-jwt-secret
+      - name: REDIS_URL
+        secureValue: redis://your-redis:6379
+      resources:
+        requests:
+          cpu: 1
+          memoryInGb: 1
+        limits:
+          cpu: 2
+          memoryInGb: 2
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 8000
+        initialDelaySeconds: 30
+        periodSeconds: 10
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 8000
+        initialDelaySeconds: 5
+        periodSeconds: 5
+  osType: Linux
+  restartPolicy: Always
+  ipAddress:
+    type: Public
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443
+  volumes:
+  - name: data
+    azureFile:
+      shareName: matsushiba-data
+      storageAccountName: yourstorageaccount
+      storageAccountKey: your-storage-key
+```
+
+## Monitoring and Logging
+
+### Prometheus Configuration
+
+```yaml
+# monitoring/prometheus.yml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "rules/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  - job_name: 'matsushiba-app'
+    static_configs:
+      - targets: ['matsushiba-app:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx:9113']
+
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+```
+
+### Grafana Dashboard
+
+```json
+{
+  "dashboard": {
+    "id": null,
+    "title": "MatsushibaDB Application Dashboard",
+    "tags": ["matsushiba", "application"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{method}} {{endpoint}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "requests/sec"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Response Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "50th percentile"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "seconds"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Error Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m])",
+            "legendFormat": "5xx errors"
+          },
+          {
+            "expr": "rate(http_requests_total{status=~\"4..\"}[5m])",
+            "legendFormat": "4xx errors"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "errors/sec"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Database Connections",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "matsushiba_db_connections_active",
+            "legendFormat": "Active Connections"
+          },
+          {
+            "expr": "matsushiba_db_connections_idle",
+            "legendFormat": "Idle Connections"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "connections"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Database Query Performance",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(matsushiba_db_query_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "seconds"
+          }
+        ]
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "5s"
+  }
+}
+```
+
+## Backup and Recovery
+
+### Automated Backup Script
+
+```bash
+#!/bin/bash
+# backup.sh
+
+# Configuration
+BACKUP_DIR="/backups/matsushiba"
+DB_PATH="/data/production.db"
+RETENTION_DAYS=30
+S3_BUCKET="your-backup-bucket"
+S3_PREFIX="matsushiba-backups"
+
+# Create backup directory
+mkdir -p "$BACKUP_DIR"
+
+# Generate backup filename
+BACKUP_FILE="matsushiba-backup-$(date +%Y%m%d-%H%M%S).db"
+
+# Create database backup
+echo "Creating database backup..."
+sqlite3 "$DB_PATH" ".backup '$BACKUP_DIR/$BACKUP_FILE'"
+
+# Compress backup
+echo "Compressing backup..."
+gzip "$BACKUP_DIR/$BACKUP_FILE"
+
+# Upload to S3
+echo "Uploading to S3..."
+aws s3 cp "$BACKUP_DIR/$BACKUP_FILE.gz" "s3://$S3_BUCKET/$S3_PREFIX/$BACKUP_FILE.gz"
+
+# Clean up local backups older than retention period
+echo "Cleaning up old backups..."
+find "$BACKUP_DIR" -name "*.gz" -mtime +$RETENTION_DAYS -delete
+
+# Clean up S3 backups older than retention period
+echo "Cleaning up old S3 backups..."
+aws s3 ls "s3://$S3_BUCKET/$S3_PREFIX/" --recursive | while read -r line; do
+    createDate=$(echo $line | awk '{print $1" "$2}')
+    createDate=$(date -d"$createDate" +%s)
+    olderThan=$(date -d"$RETENTION_DAYS days ago" +%s)
+    if [[ $createDate -lt $olderThan ]]; then
+        fileName=$(echo $line | awk '{print $4}')
+        aws s3 rm "s3://$S3_BUCKET/$fileName"
+    fi
+done
+
+echo "Backup completed successfully!"
+```
+
+### Recovery Script
+
+```bash
+#!/bin/bash
+# restore.sh
+
+# Configuration
+BACKUP_DIR="/backups/matsushiba"
+DB_PATH="/data/production.db"
+S3_BUCKET="your-backup-bucket"
+S3_PREFIX="matsushiba-backups"
+
+# Function to list available backups
+list_backups() {
+    echo "Available backups:"
+    aws s3 ls "s3://$S3_BUCKET/$S3_PREFIX/" --recursive | sort -r | head -10
+}
+
+# Function to restore from backup
+restore_backup() {
+    local backup_file="$1"
+    
+    if [ -z "$backup_file" ]; then
+        echo "Error: Backup file not specified"
+        list_backups
+        exit 1
+    fi
+    
+    echo "Stopping application..."
+    # Stop your application here
+    
+    echo "Creating backup of current database..."
+    cp "$DB_PATH" "$DB_PATH.backup.$(date +%Y%m%d-%H%M%S)"
+    
+    echo "Downloading backup from S3..."
+    aws s3 cp "s3://$S3_BUCKET/$S3_PREFIX/$backup_file" "$BACKUP_DIR/$backup_file"
+    
+    echo "Decompressing backup..."
+    gunzip "$BACKUP_DIR/$backup_file"
+    
+    echo "Restoring database..."
+    cp "$BACKUP_DIR/${backup_file%.gz}" "$DB_PATH"
+    
+    echo "Starting application..."
+    # Start your application here
+    
+    echo "Restore completed successfully!"
+}
+
+# Main script
+case "$1" in
+    list)
+        list_backups
+        ;;
+    restore)
+        restore_backup "$2"
+        ;;
+    *)
+        echo "Usage: $0 {list|restore} [backup_file]"
+        echo "  list    - List available backups"
+        echo "  restore - Restore from specified backup file"
+        exit 1
+        ;;
+esac
+```
+
+## Security Hardening
+
+### Container Security
+
+```dockerfile
+# Dockerfile.security
+FROM matsushibadb/matsushibadb:latest
+
+# Create non-root user
+RUN addgroup -g 1001 -S matsushiba && \
+    adduser -S matsushiba -u 1001
+
+# Set proper permissions
+RUN chown -R matsushiba:matsushiba /app && \
+    chmod -R 755 /app
+
+# Switch to non-root user
+USER matsushiba
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
+# Start application
+CMD ["node", "app.js"]
+```
+
+### Security Configuration
+
+```yaml
+# security-config.yml
+security:
+  # Authentication
+  authentication:
+    enabled: true
+    jwt_secret: ${JWT_SECRET}
+    token_expiry: 1h
+    refresh_token_expiry: 7d
+  
+  # Authorization
+  authorization:
+    enabled: true
+    rbac_enabled: true
+    default_role: user
+  
+  # Encryption
+  encryption:
+    enabled: true
+    algorithm: AES-256-CBC
+    key: ${ENCRYPTION_KEY}
+    key_rotation:
+      enabled: true
+      interval: 30d
+  
+  # Audit logging
+  audit_logging:
+    enabled: true
+    log_level: info
+    log_file: /var/log/audit.log
+  
+  # Network security
+  network:
+    cors_origins:
+      - https://yourdomain.com
+    rate_limiting:
+      enabled: true
+      window_ms: 900000  # 15 minutes
+      max_requests: 1000
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Production Images">
+    Always use production-optimized images with proper security configurations.
+  </Step>
+  <Step title="Implement Health Checks">
+    Configure proper health checks for container orchestration and monitoring.
+  </Step>
+  <Step title="Use Secrets Management">
+    Store sensitive configuration in secure secret management systems.
+  </Step>
+  <Step title="Enable Monitoring">
+    Set up comprehensive monitoring and logging for production deployments.
+  </Step>
+  <Step title="Implement Backup Strategy">
+    Create automated backup and recovery procedures for data protection.
+  </Step>
+  <Step title="Use Resource Limits">
+    Set appropriate resource limits and requests for container scheduling.
+  </Step>
+  <Step title="Enable Security Scanning">
+    Regularly scan container images for vulnerabilities and security issues.
+  </Step>
+  <Step title="Use Multi-Architecture Images">
+    Deploy multi-architecture images for better compatibility across platforms.
+  </Step>
+</Steps>
+
+<Note>
+Docker deployment provides excellent portability and scalability. Always use production-ready configurations, implement proper monitoring, and follow security best practices for containerized deployments.
+</Note>

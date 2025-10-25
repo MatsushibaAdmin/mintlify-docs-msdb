@@ -1,0 +1,751 @@
+---
+title: "Common Issues"
+description: "Troubleshoot common MatsushibaDB issues with solutions and best practices."
+---
+
+# Common Issues
+
+Resolve common MatsushibaDB issues with proven solutions and troubleshooting techniques.
+
+## Connection Issues
+
+### Database Locked Error
+
+**Problem**: `SQLITE_BUSY: database is locked`
+
+**Causes**:
+- Multiple processes accessing the same database
+- Long-running transactions
+- Connection not properly closed
+
+**Solutions**:
+
+<CodeGroup>
+```javascript Node.js
+// Retry mechanism for locked database
+async function retryDatabaseOperation(operation, maxRetries = 3) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            return await operation();
+        } catch (error) {
+            if (error.code === 'SQLITE_BUSY' && attempt < maxRetries) {
+                // Wait with exponential backoff
+                await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, attempt - 1)));
+                continue;
+            }
+            throw error;
+        }
+    }
+}
+
+// Usage
+const result = await retryDatabaseOperation(async () => {
+    return db.all('SELECT * FROM users WHERE status = ?', ['active']);
+});
+
+// Proper connection management
+class DatabaseManager {
+    constructor(dbPath) {
+        this.db = new MatsushibaDB(dbPath);
+        this.db.run('PRAGMA journal_mode = WAL'); // Enable WAL mode
+        this.db.run('PRAGMA synchronous = NORMAL'); // Reduce locking
+    }
+    
+    async close() {
+        if (this.db) {
+            await this.db.close();
+            this.db = null;
+        }
+    }
+}
+```
+
+```python Python
+# Retry mechanism for locked database
+import asyncio
+import time
+
+async def retry_database_operation(operation, max_retries=3):
+    for attempt in range(1, max_retries + 1):
+        try:
+            return await operation()
+        except Exception as e:
+            if 'database is locked' in str(e) and attempt < max_retries:
+                # Wait with exponential backoff
+                await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
+                continue
+            raise e
+
+# Usage
+result = await retry_database_operation(lambda: db.execute('SELECT * FROM users WHERE status = ?', ('active',)).fetchall())
+
+# Proper connection management
+class DatabaseManager:
+    def __init__(self, db_path):
+        self.db = matsushibadb.MatsushibaDB(db_path)
+        self.db.execute('PRAGMA journal_mode = WAL')  # Enable WAL mode
+        self.db.execute('PRAGMA synchronous = NORMAL')  # Reduce locking
+    
+    async def close(self):
+        if self.db:
+            self.db.close()
+            self.db = None
+```
+</CodeGroup>
+
+### Connection Timeout
+
+**Problem**: Database connections timing out
+
+**Solutions**:
+
+```sql
+-- Increase timeout settings
+PRAGMA busy_timeout = 30000;  -- 30 seconds
+PRAGMA journal_mode = WAL;    -- Better concurrency
+PRAGMA synchronous = NORMAL;  -- Balance safety and speed
+```
+
+## Data Integrity Issues
+
+### Constraint Violations
+
+**Problem**: `UNIQUE constraint failed` or `NOT NULL constraint failed`
+
+**Solutions**:
+
+<CodeGroup>
+```javascript Node.js
+// Handle constraint violations gracefully
+function insertUserWithConflictResolution(userData) {
+    try {
+        // Try regular insert first
+        const result = db.run(`
+            INSERT INTO users (username, email, password_hash)
+            VALUES (?, ?, ?)
+        `, [userData.username, userData.email, userData.passwordHash]);
+        
+        return { success: true, userId: result.lastInsertRowid };
+    } catch (error) {
+        if (error.message.includes('UNIQUE constraint failed')) {
+            if (error.message.includes('username')) {
+                return { success: false, error: 'Username already exists' };
+            } else if (error.message.includes('email')) {
+                return { success: false, error: 'Email already exists' };
+            }
+        }
+        
+        if (error.message.includes('NOT NULL constraint failed')) {
+            return { success: false, error: 'Required fields are missing' };
+        }
+        
+        throw error;
+    }
+}
+
+// Use INSERT OR REPLACE for upsert operations
+function upsertUser(userData) {
+    const result = db.run(`
+        INSERT OR REPLACE INTO users (id, username, email, password_hash, updated_at)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `, [userData.id, userData.username, userData.email, userData.passwordHash]);
+    
+    return { success: true, userId: result.lastInsertRowid };
+}
+```
+
+```python Python
+# Handle constraint violations gracefully
+def insert_user_with_conflict_resolution(user_data):
+    try:
+        # Try regular insert first
+        result = db.execute('''
+            INSERT INTO users (username, email, password_hash)
+            VALUES (?, ?, ?)
+        ''', (user_data['username'], user_data['email'], user_data['password_hash']))
+        
+        return {'success': True, 'user_id': result.lastrowid}
+    except Exception as e:
+        if 'UNIQUE constraint failed' in str(e):
+            if 'username' in str(e):
+                return {'success': False, 'error': 'Username already exists'}
+            elif 'email' in str(e):
+                return {'success': False, 'error': 'Email already exists'}
+        
+        if 'NOT NULL constraint failed' in str(e):
+            return {'success': False, 'error': 'Required fields are missing'}
+        
+        raise e
+
+# Use INSERT OR REPLACE for upsert operations
+def upsert_user(user_data):
+    result = db.execute('''
+        INSERT OR REPLACE INTO users (id, username, email, password_hash, updated_at)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ''', (user_data['id'], user_data['username'], user_data['email'], user_data['password_hash']))
+    
+    return {'success': True, 'user_id': result.lastrowid}
+```
+</CodeGroup>
+
+### Foreign Key Violations
+
+**Problem**: `FOREIGN KEY constraint failed`
+
+**Solutions**:
+
+```sql
+-- Enable foreign key constraints
+PRAGMA foreign_keys = ON;
+
+-- Check foreign key constraints
+PRAGMA foreign_key_check;
+
+-- Check specific table
+PRAGMA foreign_key_check(table_name);
+```
+
+<CodeGroup>
+```javascript Node.js
+// Validate foreign keys before insert
+function validateForeignKeys(tableName, data) {
+    const foreignKeyChecks = {
+        'posts': {
+            'author_id': 'users.id'
+        },
+        'comments': {
+            'post_id': 'posts.id',
+            'user_id': 'users.id'
+        }
+    };
+    
+    const checks = foreignKeyChecks[tableName];
+    if (!checks) return { valid: true };
+    
+    for (const [column, reference] of Object.entries(checks)) {
+        if (data[column]) {
+            const [refTable, refColumn] = reference.split('.');
+            const exists = db.get(`SELECT 1 FROM ${refTable} WHERE ${refColumn} = ?`, [data[column]]);
+            
+            if (!exists) {
+                return { 
+                    valid: false, 
+                    error: `Invalid ${column}: ${data[column]} does not exist in ${refTable}` 
+                };
+            }
+        }
+    }
+    
+    return { valid: true };
+}
+```
+
+```python Python
+# Validate foreign keys before insert
+def validate_foreign_keys(table_name, data):
+    foreign_key_checks = {
+        'posts': {
+            'author_id': 'users.id'
+        },
+        'comments': {
+            'post_id': 'posts.id',
+            'user_id': 'users.id'
+        }
+    }
+    
+    checks = foreign_key_checks.get(table_name, {})
+    if not checks:
+        return {'valid': True}
+    
+    for column, reference in checks.items():
+        if data.get(column):
+            ref_table, ref_column = reference.split('.')
+            exists = db.execute(f'SELECT 1 FROM {ref_table} WHERE {ref_column} = ?', (data[column],)).fetchone()
+            
+            if not exists:
+                return {
+                    'valid': False,
+                    'error': f'Invalid {column}: {data[column]} does not exist in {ref_table}'
+                }
+    
+    return {'valid': True}
+```
+</CodeGroup>
+
+## Performance Issues
+
+### Slow Queries
+
+**Problem**: Queries taking too long to execute
+
+**Diagnosis**:
+
+```sql
+-- Analyze query performance
+EXPLAIN QUERY PLAN SELECT * FROM users WHERE status = 'active';
+
+-- Check if indexes are being used
+EXPLAIN QUERY PLAN SELECT * FROM users WHERE email = 'user@example.com';
+```
+
+**Solutions**:
+
+<CodeGroup>
+```javascript Node.js
+// Query performance analyzer
+class QueryPerformanceAnalyzer {
+    constructor(db) {
+        this.db = db;
+    }
+    
+    analyzeQuery(sql, params = []) {
+        const startTime = Date.now();
+        
+        try {
+            // Get query plan
+            const plan = this.db.all(`EXPLAIN QUERY PLAN ${sql}`, params);
+            
+            // Execute query
+            const result = this.db.all(sql, params);
+            const executionTime = Date.now() - startTime;
+            
+            // Analyze plan
+            const hasTableScan = plan.some(step => 
+                step.detail.includes('SCAN TABLE') && 
+                !step.detail.includes('USING INDEX')
+            );
+            
+            const usesIndex = plan.some(step => 
+                step.detail.includes('USING INDEX')
+            );
+            
+            return {
+                sql: sql,
+                executionTime: executionTime,
+                resultCount: result.length,
+                hasTableScan: hasTableScan,
+                usesIndex: usesIndex,
+                plan: plan,
+                recommendations: this.generateRecommendations(hasTableScan, usesIndex, executionTime)
+            };
+        } catch (error) {
+            throw error;
+        }
+    }
+    
+    generateRecommendations(hasTableScan, usesIndex, executionTime) {
+        const recommendations = [];
+        
+        if (hasTableScan) {
+            recommendations.push('Add an index to avoid full table scan');
+        }
+        
+        if (executionTime > 1000) {
+            recommendations.push('Query is slow - consider optimization');
+        }
+        
+        if (!usesIndex && executionTime > 100) {
+            recommendations.push('Consider adding an index for better performance');
+        }
+        
+        return recommendations;
+    }
+}
+
+// Usage
+const analyzer = new QueryPerformanceAnalyzer(db);
+const analysis = analyzer.analyzeQuery('SELECT * FROM users WHERE status = ?', ['active']);
+console.log('Query Analysis:', analysis);
+```
+
+```python Python
+# Query performance analyzer
+class QueryPerformanceAnalyzer:
+    def __init__(self, db):
+        self.db = db
+    
+    def analyze_query(self, sql, params=None):
+        start_time = time.time()
+        
+        try:
+            # Get query plan
+            plan = self.db.execute(f'EXPLAIN QUERY PLAN {sql}', params or []).fetchall()
+            
+            # Execute query
+            result = self.db.execute(sql, params or []).fetchall()
+            execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+            
+            # Analyze plan
+            has_table_scan = any(
+                'SCAN TABLE' in step[3] and 'USING INDEX' not in step[3]
+                for step in plan
+            )
+            
+            uses_index = any('USING INDEX' in step[3] for step in plan)
+            
+            return {
+                'sql': sql,
+                'execution_time': execution_time,
+                'result_count': len(result),
+                'has_table_scan': has_table_scan,
+                'uses_index': uses_index,
+                'plan': plan,
+                'recommendations': self.generate_recommendations(has_table_scan, uses_index, execution_time)
+            }
+        except Exception as e:
+            raise e
+    
+    def generate_recommendations(self, has_table_scan, uses_index, execution_time):
+        recommendations = []
+        
+        if has_table_scan:
+            recommendations.append('Add an index to avoid full table scan')
+        
+        if execution_time > 1000:
+            recommendations.append('Query is slow - consider optimization')
+        
+        if not uses_index and execution_time > 100:
+            recommendations.append('Consider adding an index for better performance')
+        
+        return recommendations
+
+# Usage
+analyzer = QueryPerformanceAnalyzer(db)
+analysis = analyzer.analyze_query('SELECT * FROM users WHERE status = ?', ('active',))
+print('Query Analysis:', analysis)
+```
+</CodeGroup>
+
+### Memory Issues
+
+**Problem**: High memory usage or out of memory errors
+
+**Solutions**:
+
+<CodeGroup>
+```javascript Node.js
+// Memory-efficient data processing
+class MemoryEfficientProcessor {
+    constructor(db) {
+        this.db = db;
+        this.batchSize = 1000;
+    }
+    
+    async processLargeDataset(sql, params, processor) {
+        let offset = 0;
+        let totalProcessed = 0;
+        
+        while (true) {
+            const batch = this.db.all(`${sql} LIMIT ? OFFSET ?`, [...params, this.batchSize, offset]);
+            
+            if (batch.length === 0) break;
+            
+            await processor(batch);
+            totalProcessed += batch.length;
+            offset += this.batchSize;
+            
+            // Force garbage collection if available
+            if (global.gc) {
+                global.gc();
+            }
+        }
+        
+        return { totalProcessed };
+    }
+    
+    // Stream processing for very large datasets
+    streamProcess(sql, params, processor) {
+        const stmt = this.db.prepare(sql);
+        
+        return new Promise((resolve, reject) => {
+            stmt.each(
+                params,
+                (row) => {
+                    try {
+                        processor(row);
+                    } catch (error) {
+                        reject(error);
+                    }
+                },
+                (err, count) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(count);
+                    }
+                    stmt.finalize();
+                }
+            );
+        });
+    }
+}
+
+// Usage
+const processor = new MemoryEfficientProcessor(db);
+
+await processor.processLargeDataset(
+    'SELECT * FROM large_table WHERE status = ?',
+    ['active'],
+    async (batch) => {
+        console.log(`Processing ${batch.length} records`);
+        // Process batch
+    }
+);
+```
+
+```python Python
+# Memory-efficient data processing
+class MemoryEfficientProcessor:
+    def __init__(self, db):
+        self.db = db
+        self.batch_size = 1000
+    
+    async def process_large_dataset(self, sql, params, processor):
+        offset = 0
+        total_processed = 0
+        
+        while True:
+            batch = self.db.execute(f'{sql} LIMIT ? OFFSET ?', (*params, self.batch_size, offset)).fetchall()
+            
+            if not batch:
+                break
+            
+            await processor(batch)
+            total_processed += len(batch)
+            offset += self.batch_size
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
+        
+        return {'total_processed': total_processed}
+    
+    # Stream processing for very large datasets
+    def stream_process(self, sql, params, processor):
+        stmt = self.db.prepare(sql)
+        
+        try:
+            for row in stmt:
+                processor(row)
+        finally:
+            stmt.close()
+
+# Usage
+processor = MemoryEfficientProcessor(db)
+
+await processor.process_large_dataset(
+    'SELECT * FROM large_table WHERE status = ?',
+    ('active',),
+    lambda batch: print(f'Processing {len(batch)} records')
+)
+```
+</CodeGroup>
+
+## Configuration Issues
+
+### Database Settings
+
+**Problem**: Suboptimal database configuration
+
+**Solutions**:
+
+```sql
+-- Optimize database settings
+PRAGMA journal_mode = WAL;           -- Better concurrency
+PRAGMA synchronous = NORMAL;         -- Balance safety and speed
+PRAGMA cache_size = 2000;            -- Increase cache size
+PRAGMA temp_store = MEMORY;          -- Use memory for temp tables
+PRAGMA mmap_size = 268435456;        -- 256MB memory mapping
+PRAGMA optimize;                     -- Run query optimizer
+```
+
+### Connection Pool Settings
+
+<CodeGroup>
+```javascript Node.js
+// Optimal connection pool configuration
+const poolConfig = {
+    database: 'app.db',
+    min: 5,                    // Minimum connections
+    max: 20,                   // Maximum connections
+    acquireTimeoutMillis: 30000,
+    createTimeoutMillis: 30000,
+    destroyTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    reapIntervalMillis: 1000,
+    createRetryIntervalMillis: 200,
+    propagateCreateError: false
+};
+```
+
+```python Python
+# Optimal connection pool configuration
+pool_config = {
+    'database': 'app.db',
+    'min_connections': 5,
+    'max_connections': 20,
+    'acquire_timeout': 30,
+    'create_timeout': 30,
+    'destroy_timeout': 5,
+    'idle_timeout': 30,
+    'reap_interval': 1,
+    'create_retry_interval': 0.2,
+    'propagate_create_error': False
+}
+```
+</CodeGroup>
+
+## Debugging Techniques
+
+### Enable Debug Logging
+
+<CodeGroup>
+```javascript Node.js
+// Enable debug logging
+const MatsushibaDB = require('matsushibadb');
+
+// Set debug mode
+process.env.MATSHIBA_DEBUG = 'true';
+
+const db = new MatsushibaDB('app.db', {
+    debug: true,
+    logLevel: 'debug'
+});
+
+// Custom logging
+db.on('query', (sql, params) => {
+    console.log('Query:', sql, params);
+});
+
+db.on('error', (error) => {
+    console.error('Database Error:', error);
+});
+```
+
+```python Python
+# Enable debug logging
+import os
+import matsushibadb
+
+# Set debug mode
+os.environ['MATSHIBA_DEBUG'] = 'true'
+
+db = matsushibadb.MatsushibaDB('app.db', debug=True, log_level='debug')
+
+# Custom logging
+def log_query(sql, params):
+    print(f'Query: {sql}, Params: {params}')
+
+def log_error(error):
+    print(f'Database Error: {error}')
+```
+</CodeGroup>
+
+### Database Health Check
+
+<CodeGroup>
+```javascript Node.js
+// Database health check
+async function healthCheck() {
+    try {
+        const startTime = Date.now();
+        
+        // Test basic connectivity
+        await db.get('SELECT 1');
+        
+        // Check database integrity
+        const integrityResult = db.get('PRAGMA integrity_check');
+        
+        // Check database size
+        const sizeResult = db.get(`
+            SELECT page_count * page_size as size
+            FROM pragma_page_count(), pragma_page_size()
+        `);
+        
+        const responseTime = Date.now() - startTime;
+        
+        return {
+            status: 'healthy',
+            responseTime: responseTime,
+            integrity: integrityResult,
+            size: sizeResult.size,
+            timestamp: new Date().toISOString()
+        };
+    } catch (error) {
+        return {
+            status: 'unhealthy',
+            error: error.message,
+            timestamp: new Date().toISOString()
+        };
+    }
+}
+```
+
+```python Python
+# Database health check
+async def health_check():
+    try:
+        start_time = time.time()
+        
+        # Test basic connectivity
+        db.execute('SELECT 1').fetchone()
+        
+        # Check database integrity
+        integrity_result = db.execute('PRAGMA integrity_check').fetchone()
+        
+        # Check database size
+        size_result = db.execute('''
+            SELECT page_count * page_size as size
+            FROM pragma_page_count(), pragma_page_size()
+        ''').fetchone()
+        
+        response_time = (time.time() - start_time) * 1000
+        
+        return {
+            'status': 'healthy',
+            'response_time': response_time,
+            'integrity': integrity_result,
+            'size': size_result[0],
+            'timestamp': time.time()
+        }
+    except Exception as e:
+        return {
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': time.time()
+        }
+```
+</CodeGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Handle Errors Gracefully">
+    Always implement proper error handling with specific error type checking.
+  </Step>
+  <Step title="Use Retry Mechanisms">
+    Implement retry logic for transient errors like database locks.
+  </Step>
+  <Step title="Monitor Performance">
+    Regularly monitor query performance and database health.
+  </Step>
+  <Step title="Optimize Configuration">
+    Use optimal database and connection pool settings for your use case.
+  </Step>
+  <Step title="Implement Health Checks">
+    Create comprehensive health check endpoints for monitoring.
+  </Step>
+  <Step title="Use Proper Indexing">
+    Create appropriate indexes to avoid performance issues.
+  </Step>
+  <Step title="Manage Connections">
+    Properly manage database connections and use connection pooling.
+  </Step>
+  <Step title="Regular Maintenance">
+    Perform regular database maintenance including VACUUM and ANALYZE.
+  </Step>
+</Steps>
+
+<Note>
+Most common issues can be prevented with proper configuration, error handling, and monitoring. Always test your solutions in a development environment before applying them to production.
+</Note>

@@ -1,0 +1,1357 @@
+---
+title: "Security"
+description: "Comprehensive security guide for MatsushibaDB including authentication, authorization, encryption, and security best practices."
+---
+
+# Security
+
+Implement robust security measures in MatsushibaDB to protect your data and applications from threats and vulnerabilities.
+
+## Authentication
+
+### User Authentication
+
+<CodeGroup>
+```javascript Node.js
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const MatsushibaDB = require('matsushibadb');
+
+const db = new MatsushibaDB('app.db');
+
+// User registration with password hashing
+async function registerUser(userData) {
+    try {
+        // Hash password
+        const saltRounds = 12;
+        const passwordHash = await bcrypt.hash(userData.password, saltRounds);
+        
+        // Store user
+        const result = db.run(`
+            INSERT INTO users (username, email, password_hash, created_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        `, [userData.username, userData.email, passwordHash]);
+        
+        return {
+            success: true,
+            userId: result.lastInsertRowid,
+            message: 'User registered successfully'
+        };
+    } catch (error) {
+        if (error.message.includes('UNIQUE constraint failed')) {
+            return { success: false, error: 'Username or email already exists' };
+        }
+        throw error;
+    }
+}
+
+// User login with password verification
+async function loginUser(credentials) {
+    try {
+        const user = db.get(`
+            SELECT id, username, email, password_hash, status
+            FROM users 
+            WHERE username = ? OR email = ?
+        `, [credentials.username, credentials.username]);
+        
+        if (!user) {
+            return { success: false, error: 'Invalid credentials' };
+        }
+        
+        if (user.status !== 'active') {
+            return { success: false, error: 'Account is not active' };
+        }
+        
+        // Verify password
+        const isValidPassword = await bcrypt.compare(credentials.password, user.password_hash);
+        
+        if (!isValidPassword) {
+            return { success: false, error: 'Invalid credentials' };
+        }
+        
+        // Generate JWT token
+        const token = jwt.sign(
+            { 
+                userId: user.id, 
+                username: user.username,
+                email: user.email 
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+        
+        // Update last login
+        db.run('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
+        
+        return {
+            success: true,
+            token: token,
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email
+            }
+        };
+    } catch (error) {
+        throw error;
+    }
+}
+
+// Token verification middleware
+function verifyToken(req, res, next) {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+    
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        req.user = decoded;
+        next();
+    } catch (error) {
+        return res.status(401).json({ error: 'Invalid token' });
+    }
+}
+```
+
+```python Python
+import bcrypt
+import jwt
+import os
+import matsushibadb
+from datetime import datetime, timedelta
+
+db = matsushibadb.MatsushibaDB('app.db')
+
+# User registration with password hashing
+async def register_user(user_data):
+    try:
+        # Hash password
+        salt_rounds = 12
+        password_hash = bcrypt.hashpw(user_data['password'].encode('utf-8'), bcrypt.gensalt(salt_rounds))
+        
+        # Store user
+        result = db.execute('''
+            INSERT INTO users (username, email, password_hash, created_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (user_data['username'], user_data['email'], password_hash))
+        
+        return {
+            'success': True,
+            'user_id': result.lastrowid,
+            'message': 'User registered successfully'
+        }
+    except Exception as e:
+        if 'UNIQUE constraint failed' in str(e):
+            return {'success': False, 'error': 'Username or email already exists'}
+        raise e
+
+# User login with password verification
+async def login_user(credentials):
+    try:
+        user = db.execute('''
+            SELECT id, username, email, password_hash, status
+            FROM users 
+            WHERE username = ? OR email = ?
+        ''', (credentials['username'], credentials['username'])).fetchone()
+        
+        if not user:
+            return {'success': False, 'error': 'Invalid credentials'}
+        
+        if user[4] != 'active':  # status field
+            return {'success': False, 'error': 'Account is not active'}
+        
+        # Verify password
+        is_valid_password = bcrypt.checkpw(credentials['password'].encode('utf-8'), user[3])
+        
+        if not is_valid_password:
+            return {'success': False, 'error': 'Invalid credentials'}
+        
+        # Generate JWT token
+        token = jwt.encode({
+            'user_id': user[0],
+            'username': user[1],
+            'email': user[2],
+            'exp': datetime.utcnow() + timedelta(hours=24)
+        }, os.getenv('JWT_SECRET'), algorithm='HS256')
+        
+        # Update last login
+        db.execute('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', (user[0],))
+        
+        return {
+            'success': True,
+            'token': token,
+            'user': {
+                'id': user[0],
+                'username': user[1],
+                'email': user[2]
+            }
+        }
+    except Exception as e:
+        raise e
+
+# Token verification decorator
+def verify_token(func):
+    def wrapper(*args, **kwargs):
+        token = request.headers.get('Authorization', '').split(' ')[-1]
+        
+        if not token:
+            return {'error': 'No token provided'}, 401
+        
+        try:
+            decoded = jwt.decode(token, os.getenv('JWT_SECRET'), algorithms=['HS256'])
+            request.user = decoded
+            return func(*args, **kwargs)
+        except jwt.ExpiredSignatureError:
+            return {'error': 'Token expired'}, 401
+        except jwt.InvalidTokenError:
+            return {'error': 'Invalid token'}, 401
+    
+    return wrapper
+```
+</CodeGroup>
+
+### Multi-Factor Authentication (MFA)
+
+<CodeGroup>
+```javascript Node.js
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
+
+// Enable MFA for user
+function enableMFA(userId) {
+    try {
+        // Generate secret
+        const secret = speakeasy.generateSecret({
+            name: 'MatsushibaDB App',
+            issuer: 'MatsushibaDB',
+            length: 32
+        });
+        
+        // Store secret in database
+        db.run(`
+            INSERT OR REPLACE INTO user_mfa (user_id, secret, enabled, created_at)
+            VALUES (?, ?, 0, CURRENT_TIMESTAMP)
+        `, [userId, secret.base32]);
+        
+        // Generate QR code
+        const qrCodeUrl = QRCode.toDataURL(secret.otpauth_url);
+        
+        return {
+            success: true,
+            secret: secret.base32,
+            qrCode: qrCodeUrl,
+            manualEntryKey: secret.base32
+        };
+    } catch (error) {
+        throw error;
+    }
+}
+
+// Verify MFA token
+function verifyMFAToken(userId, token) {
+    try {
+        const mfaRecord = db.get(`
+            SELECT secret FROM user_mfa 
+            WHERE user_id = ? AND enabled = 1
+        `, [userId]);
+        
+        if (!mfaRecord) {
+            return { success: false, error: 'MFA not enabled' };
+        }
+        
+        const verified = speakeasy.totp.verify({
+            secret: mfaRecord.secret,
+            encoding: 'base32',
+            token: token,
+            window: 2 // Allow 2 time steps before/after
+        });
+        
+        if (verified) {
+            // Log successful MFA verification
+            db.run(`
+                INSERT INTO security_logs (user_id, event_type, description, ip_address)
+                VALUES (?, ?, ?, ?)
+            `, [userId, 'mfa_success', 'MFA verification successful', req.ip]);
+            
+            return { success: true, message: 'MFA verified' };
+        } else {
+            // Log failed MFA attempt
+            db.run(`
+                INSERT INTO security_logs (user_id, event_type, description, ip_address)
+                VALUES (?, ?, ?, ?)
+            `, [userId, 'mfa_failure', 'MFA verification failed', req.ip]);
+            
+            return { success: false, error: 'Invalid MFA token' };
+        }
+    } catch (error) {
+        throw error;
+    }
+}
+
+// Complete login with MFA
+async function loginWithMFA(credentials, mfaToken) {
+    try {
+        // First verify credentials
+        const loginResult = await loginUser(credentials);
+        
+        if (!loginResult.success) {
+            return loginResult;
+        }
+        
+        // Check if MFA is enabled
+        const mfaEnabled = db.get(`
+            SELECT enabled FROM user_mfa WHERE user_id = ?
+        `, [loginResult.user.id]);
+        
+        if (mfaEnabled && mfaEnabled.enabled) {
+            // Verify MFA token
+            const mfaResult = verifyMFAToken(loginResult.user.id, mfaToken);
+            
+            if (!mfaResult.success) {
+                return mfaResult;
+            }
+        }
+        
+        return loginResult;
+    } catch (error) {
+        throw error;
+    }
+}
+```
+
+```python Python
+import pyotp
+import qrcode
+import io
+import base64
+
+# Enable MFA for user
+def enable_mfa(user_id):
+    try:
+        # Generate secret
+        secret = pyotp.random_base32()
+        
+        # Store secret in database
+        db.execute('''
+            INSERT OR REPLACE INTO user_mfa (user_id, secret, enabled, created_at)
+            VALUES (?, ?, 0, CURRENT_TIMESTAMP)
+        ''', (user_id, secret))
+        
+        # Generate QR code
+        totp_uri = pyotp.totp.TOTP(secret).provisioning_uri(
+            name=f"user_{user_id}",
+            issuer_name="MatsushibaDB"
+        )
+        
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(totp_uri)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        # Convert to base64
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG')
+        qr_code = base64.b64encode(buffer.getvalue()).decode()
+        
+        return {
+            'success': True,
+            'secret': secret,
+            'qr_code': f"data:image/png;base64,{qr_code}",
+            'manual_entry_key': secret
+        }
+    except Exception as e:
+        raise e
+
+# Verify MFA token
+def verify_mfa_token(user_id, token):
+    try:
+        mfa_record = db.execute('''
+            SELECT secret FROM user_mfa 
+            WHERE user_id = ? AND enabled = 1
+        ''', (user_id,)).fetchone()
+        
+        if not mfa_record:
+            return {'success': False, 'error': 'MFA not enabled'}
+        
+        totp = pyotp.TOTP(mfa_record[0])
+        verified = totp.verify(token, valid_window=2)
+        
+        if verified:
+            # Log successful MFA verification
+            db.execute('''
+                INSERT INTO security_logs (user_id, event_type, description, ip_address)
+                VALUES (?, ?, ?, ?)
+            ''', (user_id, 'mfa_success', 'MFA verification successful', request.remote_addr))
+            
+            return {'success': True, 'message': 'MFA verified'}
+        else:
+            # Log failed MFA attempt
+            db.execute('''
+                INSERT INTO security_logs (user_id, event_type, description, ip_address)
+                VALUES (?, ?, ?, ?)
+            ''', (user_id, 'mfa_failure', 'MFA verification failed', request.remote_addr))
+            
+            return {'success': False, 'error': 'Invalid MFA token'}
+    except Exception as e:
+        raise e
+
+# Complete login with MFA
+async def login_with_mfa(credentials, mfa_token):
+    try:
+        # First verify credentials
+        login_result = await login_user(credentials)
+        
+        if not login_result['success']:
+            return login_result
+        
+        # Check if MFA is enabled
+        mfa_enabled = db.execute('''
+            SELECT enabled FROM user_mfa WHERE user_id = ?
+        ''', (login_result['user']['id'],)).fetchone()
+        
+        if mfa_enabled and mfa_enabled[0]:
+            # Verify MFA token
+            mfa_result = verify_mfa_token(login_result['user']['id'], mfa_token)
+            
+            if not mfa_result['success']:
+                return mfa_result
+        
+        return login_result
+    except Exception as e:
+        raise e
+```
+</CodeGroup>
+
+## Authorization
+
+### Role-Based Access Control (RBAC)
+
+<CodeGroup>
+```javascript Node.js
+// Create roles and permissions
+function initializeRBAC() {
+    // Create roles
+    const roles = [
+        { name: 'admin', description: 'Administrator with full access' },
+        { name: 'moderator', description: 'Moderator with limited admin access' },
+        { name: 'user', description: 'Regular user' },
+        { name: 'guest', description: 'Guest user with read-only access' }
+    ];
+    
+    roles.forEach(role => {
+        db.run(`
+            INSERT OR IGNORE INTO roles (name, description, created_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        `, [role.name, role.description]);
+    });
+    
+    // Create permissions
+    const permissions = [
+        { name: 'read_users', description: 'Read user data' },
+        { name: 'write_users', description: 'Create/update users' },
+        { name: 'delete_users', description: 'Delete users' },
+        { name: 'read_posts', description: 'Read posts' },
+        { name: 'write_posts', description: 'Create/update posts' },
+        { name: 'delete_posts', description: 'Delete posts' },
+        { name: 'moderate_content', description: 'Moderate content' },
+        { name: 'admin_access', description: 'Full admin access' }
+    ];
+    
+    permissions.forEach(permission => {
+        db.run(`
+            INSERT OR IGNORE INTO permissions (name, description, created_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        `, [permission.name, permission.description]);
+    });
+    
+    // Assign permissions to roles
+    const rolePermissions = [
+        // Admin gets all permissions
+        { role: 'admin', permissions: ['read_users', 'write_users', 'delete_users', 'read_posts', 'write_posts', 'delete_posts', 'moderate_content', 'admin_access'] },
+        // Moderator gets moderation and content permissions
+        { role: 'moderator', permissions: ['read_users', 'read_posts', 'write_posts', 'moderate_content'] },
+        // User gets basic permissions
+        { role: 'user', permissions: ['read_posts', 'write_posts'] },
+        // Guest gets read-only permissions
+        { role: 'guest', permissions: ['read_posts'] }
+    ];
+    
+    rolePermissions.forEach(({ role, permissions }) => {
+        const roleId = db.get('SELECT id FROM roles WHERE name = ?', [role]).id;
+        
+        permissions.forEach(permissionName => {
+            const permissionId = db.get('SELECT id FROM permissions WHERE name = ?', [permissionName]).id;
+            
+            db.run(`
+                INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+                VALUES (?, ?)
+            `, [roleId, permissionId]);
+        });
+    });
+}
+
+// Assign role to user
+function assignUserRole(userId, roleName) {
+    try {
+        const role = db.get('SELECT id FROM roles WHERE name = ?', [roleName]);
+        
+        if (!role) {
+            return { success: false, error: 'Role not found' };
+        }
+        
+        db.run(`
+            INSERT OR REPLACE INTO user_roles (user_id, role_id, assigned_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        `, [userId, role.id]);
+        
+        return { success: true, message: `Role ${roleName} assigned to user` };
+    } catch (error) {
+        throw error;
+    }
+}
+
+// Check user permission
+function hasPermission(userId, permissionName) {
+    try {
+        const result = db.get(`
+            SELECT COUNT(*) as count
+            FROM user_roles ur
+            JOIN role_permissions rp ON ur.role_id = rp.role_id
+            JOIN permissions p ON rp.permission_id = p.id
+            WHERE ur.user_id = ? AND p.name = ?
+        `, [userId, permissionName]);
+        
+        return result.count > 0;
+    } catch (error) {
+        return false;
+    }
+}
+
+// Authorization middleware
+function requirePermission(permission) {
+    return (req, res, next) => {
+        if (!req.user) {
+            return res.status(401).json({ error: 'Authentication required' });
+        }
+        
+        if (!hasPermission(req.user.userId, permission)) {
+            return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+        
+        next();
+    };
+}
+```
+
+```python Python
+# Create roles and permissions
+def initialize_rbac():
+    # Create roles
+    roles = [
+        {'name': 'admin', 'description': 'Administrator with full access'},
+        {'name': 'moderator', 'description': 'Moderator with limited admin access'},
+        {'name': 'user', 'description': 'Regular user'},
+        {'name': 'guest', 'description': 'Guest user with read-only access'}
+    ]
+    
+    for role in roles:
+        db.execute('''
+            INSERT OR IGNORE INTO roles (name, description, created_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (role['name'], role['description']))
+    
+    # Create permissions
+    permissions = [
+        {'name': 'read_users', 'description': 'Read user data'},
+        {'name': 'write_users', 'description': 'Create/update users'},
+        {'name': 'delete_users', 'description': 'Delete users'},
+        {'name': 'read_posts', 'description': 'Read posts'},
+        {'name': 'write_posts', 'description': 'Create/update posts'},
+        {'name': 'delete_posts', 'description': 'Delete posts'},
+        {'name': 'moderate_content', 'description': 'Moderate content'},
+        {'name': 'admin_access', 'description': 'Full admin access'}
+    ]
+    
+    for permission in permissions:
+        db.execute('''
+            INSERT OR IGNORE INTO permissions (name, description, created_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (permission['name'], permission['description']))
+    
+    # Assign permissions to roles
+    role_permissions = [
+        # Admin gets all permissions
+        {'role': 'admin', 'permissions': ['read_users', 'write_users', 'delete_users', 'read_posts', 'write_posts', 'delete_posts', 'moderate_content', 'admin_access']},
+        # Moderator gets moderation and content permissions
+        {'role': 'moderator', 'permissions': ['read_users', 'read_posts', 'write_posts', 'moderate_content']},
+        # User gets basic permissions
+        {'role': 'user', 'permissions': ['read_posts', 'write_posts']},
+        # Guest gets read-only permissions
+        {'role': 'guest', 'permissions': ['read_posts']}
+    ]
+    
+    for role_perm in role_permissions:
+        role_id = db.execute('SELECT id FROM roles WHERE name = ?', (role_perm['role'],)).fetchone()[0]
+        
+        for permission_name in role_perm['permissions']:
+            permission_id = db.execute('SELECT id FROM permissions WHERE name = ?', (permission_name,)).fetchone()[0]
+            
+            db.execute('''
+                INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+                VALUES (?, ?)
+            ''', (role_id, permission_id))
+
+# Assign role to user
+def assign_user_role(user_id, role_name):
+    try:
+        role = db.execute('SELECT id FROM roles WHERE name = ?', (role_name,)).fetchone()
+        
+        if not role:
+            return {'success': False, 'error': 'Role not found'}
+        
+        db.execute('''
+            INSERT OR REPLACE INTO user_roles (user_id, role_id, assigned_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (user_id, role[0]))
+        
+        return {'success': True, 'message': f'Role {role_name} assigned to user'}
+    except Exception as e:
+        raise e
+
+# Check user permission
+def has_permission(user_id, permission_name):
+    try:
+        result = db.execute('''
+            SELECT COUNT(*) as count
+            FROM user_roles ur
+            JOIN role_permissions rp ON ur.role_id = rp.role_id
+            JOIN permissions p ON rp.permission_id = p.id
+            WHERE ur.user_id = ? AND p.name = ?
+        ''', (user_id, permission_name)).fetchone()
+        
+        return result[0] > 0
+    except Exception as e:
+        return False
+
+# Authorization decorator
+def require_permission(permission):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            if not hasattr(request, 'user') or not request.user:
+                return {'error': 'Authentication required'}, 401
+            
+            if not has_permission(request.user['user_id'], permission):
+                return {'error': 'Insufficient permissions'}, 403
+            
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+```
+</CodeGroup>
+
+## Data Encryption
+
+### Database-Level Encryption
+
+<CodeGroup>
+```javascript Node.js
+const crypto = require('crypto');
+
+// Encryption configuration
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32);
+const ALGORITHM = 'aes-256-gcm';
+
+// Encrypt sensitive data
+function encryptData(text) {
+    try {
+        const iv = crypto.randomBytes(16);
+        const cipher = crypto.createCipher(ALGORITHM, ENCRYPTION_KEY);
+        cipher.setAAD(Buffer.from('matsushiba-db', 'utf8'));
+        
+        let encrypted = cipher.update(text, 'utf8', 'hex');
+        encrypted += cipher.final('hex');
+        
+        const authTag = cipher.getAuthTag();
+        
+        return {
+            encrypted: encrypted,
+            iv: iv.toString('hex'),
+            authTag: authTag.toString('hex')
+        };
+    } catch (error) {
+        throw new Error('Encryption failed: ' + error.message);
+    }
+}
+
+// Decrypt sensitive data
+function decryptData(encryptedData) {
+    try {
+        const decipher = crypto.createDecipher(ALGORITHM, ENCRYPTION_KEY);
+        decipher.setAAD(Buffer.from('matsushiba-db', 'utf8'));
+        decipher.setAuthTag(Buffer.from(encryptedData.authTag, 'hex'));
+        
+        let decrypted = decipher.update(encryptedData.encrypted, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        
+        return decrypted;
+    } catch (error) {
+        throw new Error('Decryption failed: ' + error.message);
+    }
+}
+
+// Store encrypted sensitive data
+function storeSensitiveData(userId, sensitiveData) {
+    try {
+        const encrypted = encryptData(JSON.stringify(sensitiveData));
+        
+        db.run(`
+            INSERT INTO sensitive_data (user_id, encrypted_data, iv, auth_tag, created_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `, [userId, encrypted.encrypted, encrypted.iv, encrypted.authTag]);
+        
+        return { success: true, message: 'Sensitive data stored securely' };
+    } catch (error) {
+        throw error;
+    }
+}
+
+// Retrieve and decrypt sensitive data
+function getSensitiveData(userId) {
+    try {
+        const record = db.get(`
+            SELECT encrypted_data, iv, auth_tag
+            FROM sensitive_data
+            WHERE user_id = ?
+        `, [userId]);
+        
+        if (!record) {
+            return { success: false, error: 'No sensitive data found' };
+        }
+        
+        const decrypted = decryptData({
+            encrypted: record.encrypted_data,
+            iv: record.iv,
+            authTag: record.auth_tag
+        });
+        
+        return {
+            success: true,
+            data: JSON.parse(decrypted)
+        };
+    } catch (error) {
+        throw error;
+    }
+}
+```
+
+```python Python
+from cryptography.fernet import Fernet
+import json
+import base64
+
+# Generate encryption key
+def generate_key():
+    return Fernet.generate_key()
+
+# Initialize encryption
+ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', generate_key().decode())
+cipher_suite = Fernet(ENCRYPTION_KEY.encode())
+
+# Encrypt sensitive data
+def encrypt_data(text):
+    try:
+        encrypted_data = cipher_suite.encrypt(text.encode())
+        return base64.b64encode(encrypted_data).decode()
+    except Exception as e:
+        raise Exception(f'Encryption failed: {str(e)}')
+
+# Decrypt sensitive data
+def decrypt_data(encrypted_text):
+    try:
+        encrypted_data = base64.b64decode(encrypted_text.encode())
+        decrypted_data = cipher_suite.decrypt(encrypted_data)
+        return decrypted_data.decode()
+    except Exception as e:
+        raise Exception(f'Decryption failed: {str(e)}')
+
+# Store encrypted sensitive data
+def store_sensitive_data(user_id, sensitive_data):
+    try:
+        encrypted = encrypt_data(json.dumps(sensitive_data))
+        
+        db.execute('''
+            INSERT INTO sensitive_data (user_id, encrypted_data, created_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (user_id, encrypted))
+        
+        return {'success': True, 'message': 'Sensitive data stored securely'}
+    except Exception as e:
+        raise e
+
+# Retrieve and decrypt sensitive data
+def get_sensitive_data(user_id):
+    try:
+        record = db.execute('''
+            SELECT encrypted_data
+            FROM sensitive_data
+            WHERE user_id = ?
+        ''', (user_id,)).fetchone()
+        
+        if not record:
+            return {'success': False, 'error': 'No sensitive data found'}
+        
+        decrypted = decrypt_data(record[0])
+        
+        return {
+            'success': True,
+            'data': json.loads(decrypted)
+        }
+    except Exception as e:
+        raise e
+```
+</CodeGroup>
+
+## Security Monitoring
+
+### Audit Logging
+
+<CodeGroup>
+```javascript Node.js
+// Security event logging
+function logSecurityEvent(userId, eventType, description, metadata = {}) {
+    try {
+        db.run(`
+            INSERT INTO security_logs (
+                user_id, event_type, description, metadata, 
+                ip_address, user_agent, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `, [
+            userId,
+            eventType,
+            description,
+            JSON.stringify(metadata),
+            req?.ip || 'unknown',
+            req?.get('User-Agent') || 'unknown'
+        ]);
+    } catch (error) {
+        console.error('Failed to log security event:', error);
+    }
+}
+
+// Failed login attempt tracking
+function trackFailedLogin(username, ipAddress) {
+    try {
+        // Log failed attempt
+        logSecurityEvent(null, 'login_failed', `Failed login attempt for ${username}`, {
+            username: username,
+            ip_address: ipAddress
+        });
+        
+        // Check for suspicious activity
+        const recentFailures = db.get(`
+            SELECT COUNT(*) as count
+            FROM security_logs
+            WHERE event_type = 'login_failed'
+            AND ip_address = ?
+            AND created_at > datetime('now', '-15 minutes')
+        `, [ipAddress]);
+        
+        if (recentFailures.count >= 5) {
+            // Block IP temporarily
+            db.run(`
+                INSERT INTO blocked_ips (ip_address, reason, blocked_until)
+                VALUES (?, ?, datetime('now', '+1 hour'))
+            `, [ipAddress, 'Multiple failed login attempts']);
+            
+            logSecurityEvent(null, 'ip_blocked', `IP ${ipAddress} blocked due to suspicious activity`);
+        }
+    } catch (error) {
+        console.error('Failed to track failed login:', error);
+    }
+}
+
+// Security monitoring dashboard
+function getSecurityMetrics() {
+    try {
+        const metrics = {};
+        
+        // Failed login attempts in last 24 hours
+        metrics.failedLogins = db.get(`
+            SELECT COUNT(*) as count
+            FROM security_logs
+            WHERE event_type = 'login_failed'
+            AND created_at > datetime('now', '-24 hours')
+        `).count;
+        
+        // Active blocked IPs
+        metrics.blockedIPs = db.get(`
+            SELECT COUNT(*) as count
+            FROM blocked_ips
+            WHERE blocked_until > datetime('now')
+        `).count;
+        
+        // MFA usage
+        metrics.mfaUsage = db.get(`
+            SELECT COUNT(*) as count
+            FROM security_logs
+            WHERE event_type = 'mfa_success'
+            AND created_at > datetime('now', '-24 hours')
+        `).count;
+        
+        // Recent security events
+        metrics.recentEvents = db.all(`
+            SELECT event_type, description, created_at
+            FROM security_logs
+            WHERE created_at > datetime('now', '-1 hour')
+            ORDER BY created_at DESC
+            LIMIT 10
+        `);
+        
+        return metrics;
+    } catch (error) {
+        throw error;
+    }
+}
+```
+
+```python Python
+# Security event logging
+def log_security_event(user_id, event_type, description, metadata=None):
+    try:
+        db.execute('''
+            INSERT INTO security_logs (
+                user_id, event_type, description, metadata, 
+                ip_address, user_agent, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (
+            user_id,
+            event_type,
+            description,
+            json.dumps(metadata) if metadata else None,
+            request.remote_addr if hasattr(request, 'remote_addr') else 'unknown',
+            request.headers.get('User-Agent', 'unknown') if hasattr(request, 'headers') else 'unknown'
+        ))
+    except Exception as e:
+        print(f'Failed to log security event: {e}')
+
+# Failed login attempt tracking
+def track_failed_login(username, ip_address):
+    try:
+        # Log failed attempt
+        log_security_event(None, 'login_failed', f'Failed login attempt for {username}', {
+            'username': username,
+            'ip_address': ip_address
+        })
+        
+        # Check for suspicious activity
+        recent_failures = db.execute('''
+            SELECT COUNT(*) as count
+            FROM security_logs
+            WHERE event_type = 'login_failed'
+            AND ip_address = ?
+            AND created_at > datetime('now', '-15 minutes')
+        ''', (ip_address,)).fetchone()
+        
+        if recent_failures[0] >= 5:
+            # Block IP temporarily
+            db.execute('''
+                INSERT INTO blocked_ips (ip_address, reason, blocked_until)
+                VALUES (?, ?, datetime('now', '+1 hour'))
+            ''', (ip_address, 'Multiple failed login attempts'))
+            
+            log_security_event(None, 'ip_blocked', f'IP {ip_address} blocked due to suspicious activity')
+    except Exception as e:
+        print(f'Failed to track failed login: {e}')
+
+# Security monitoring dashboard
+def get_security_metrics():
+    try:
+        metrics = {}
+        
+        # Failed login attempts in last 24 hours
+        failed_logins = db.execute('''
+            SELECT COUNT(*) as count
+            FROM security_logs
+            WHERE event_type = 'login_failed'
+            AND created_at > datetime('now', '-24 hours')
+        ''').fetchone()
+        metrics['failed_logins'] = failed_logins[0]
+        
+        # Active blocked IPs
+        blocked_ips = db.execute('''
+            SELECT COUNT(*) as count
+            FROM blocked_ips
+            WHERE blocked_until > datetime('now')
+        ''').fetchone()
+        metrics['blocked_ips'] = blocked_ips[0]
+        
+        # MFA usage
+        mfa_usage = db.execute('''
+            SELECT COUNT(*) as count
+            FROM security_logs
+            WHERE event_type = 'mfa_success'
+            AND created_at > datetime('now', '-24 hours')
+        ''').fetchone()
+        metrics['mfa_usage'] = mfa_usage[0]
+        
+        # Recent security events
+        recent_events = db.execute('''
+            SELECT event_type, description, created_at
+            FROM security_logs
+            WHERE created_at > datetime('now', '-1 hour')
+            ORDER BY created_at DESC
+            LIMIT 10
+        ''').fetchall()
+        metrics['recent_events'] = recent_events
+        
+        return metrics
+    except Exception as e:
+        raise e
+```
+</CodeGroup>
+
+## Security Best Practices
+
+### Input Validation and Sanitization
+
+<CodeGroup>
+```javascript Node.js
+const validator = require('validator');
+const xss = require('xss');
+
+// Input validation
+function validateInput(data, rules) {
+    const errors = [];
+    
+    for (const [field, rule] of Object.entries(rules)) {
+        const value = data[field];
+        
+        if (rule.required && (!value || value.trim() === '')) {
+            errors.push(`${field} is required`);
+            continue;
+        }
+        
+        if (value) {
+            if (rule.type === 'email' && !validator.isEmail(value)) {
+                errors.push(`${field} must be a valid email`);
+            }
+            
+            if (rule.type === 'password' && !validator.isStrongPassword(value)) {
+                errors.push(`${field} must be a strong password`);
+            }
+            
+            if (rule.minLength && value.length < rule.minLength) {
+                errors.push(`${field} must be at least ${rule.minLength} characters`);
+            }
+            
+            if (rule.maxLength && value.length > rule.maxLength) {
+                errors.push(`${field} must be no more than ${rule.maxLength} characters`);
+            }
+        }
+    }
+    
+    return errors;
+}
+
+// Sanitize input
+function sanitizeInput(input) {
+    if (typeof input === 'string') {
+        // Remove XSS
+        return xss(input, {
+            whiteList: {},
+            stripIgnoreTag: true,
+            stripIgnoreTagBody: ['script']
+        });
+    }
+    
+    if (typeof input === 'object' && input !== null) {
+        const sanitized = {};
+        for (const [key, value] of Object.entries(input)) {
+            sanitized[key] = sanitizeInput(value);
+        }
+        return sanitized;
+    }
+    
+    return input;
+}
+
+// Secure user creation
+function createUserSecurely(userData) {
+    try {
+        // Validate input
+        const validationRules = {
+            username: { required: true, minLength: 3, maxLength: 50 },
+            email: { required: true, type: 'email' },
+            password: { required: true, type: 'password' }
+        };
+        
+        const validationErrors = validateInput(userData, validationRules);
+        if (validationErrors.length > 0) {
+            return { success: false, errors: validationErrors };
+        }
+        
+        // Sanitize input
+        const sanitizedData = sanitizeInput(userData);
+        
+        // Hash password
+        const passwordHash = bcrypt.hashSync(sanitizedData.password, 12);
+        
+        // Store user
+        const result = db.run(`
+            INSERT INTO users (username, email, password_hash, created_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        `, [sanitizedData.username, sanitizedData.email, passwordHash]);
+        
+        return {
+            success: true,
+            userId: result.lastInsertRowid,
+            message: 'User created successfully'
+        };
+    } catch (error) {
+        throw error;
+    }
+}
+```
+
+```python Python
+import re
+from html import escape
+import bleach
+
+# Input validation
+def validate_input(data, rules):
+    errors = []
+    
+    for field, rule in rules.items():
+        value = data.get(field)
+        
+        if rule.get('required') and (not value or str(value).strip() == ''):
+            errors.append(f'{field} is required')
+            continue
+        
+        if value:
+            if rule.get('type') == 'email' and not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', str(value)):
+                errors.append(f'{field} must be a valid email')
+            
+            if rule.get('type') == 'password' and len(str(value)) < 8:
+                errors.append(f'{field} must be at least 8 characters')
+            
+            if rule.get('min_length') and len(str(value)) < rule['min_length']:
+                errors.append(f'{field} must be at least {rule["min_length"]} characters')
+            
+            if rule.get('max_length') and len(str(value)) > rule['max_length']:
+                errors.append(f'{field} must be no more than {rule["max_length"]} characters')
+    
+    return errors
+
+# Sanitize input
+def sanitize_input(input_data):
+    if isinstance(input_data, str):
+        # Remove XSS and HTML tags
+        return bleach.clean(input_data, strip=True)
+    
+    if isinstance(input_data, dict):
+        sanitized = {}
+        for key, value in input_data.items():
+            sanitized[key] = sanitize_input(value)
+        return sanitized
+    
+    return input_data
+
+# Secure user creation
+def create_user_securely(user_data):
+    try:
+        # Validate input
+        validation_rules = {
+            'username': {'required': True, 'min_length': 3, 'max_length': 50},
+            'email': {'required': True, 'type': 'email'},
+            'password': {'required': True, 'type': 'password'}
+        }
+        
+        validation_errors = validate_input(user_data, validation_rules)
+        if validation_errors:
+            return {'success': False, 'errors': validation_errors}
+        
+        # Sanitize input
+        sanitized_data = sanitize_input(user_data)
+        
+        # Hash password
+        password_hash = bcrypt.hashpw(sanitized_data['password'].encode('utf-8'), bcrypt.gensalt())
+        
+        # Store user
+        result = db.execute('''
+            INSERT INTO users (username, email, password_hash, created_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (sanitized_data['username'], sanitized_data['email'], password_hash))
+        
+        return {
+            'success': True,
+            'user_id': result.lastrowid,
+            'message': 'User created successfully'
+        }
+    except Exception as e:
+        raise e
+```
+</CodeGroup>
+
+## Security Configuration
+
+### Database Security Settings
+
+```sql
+-- Enable foreign key constraints
+PRAGMA foreign_keys = ON;
+
+-- Set secure journal mode
+PRAGMA journal_mode = WAL;
+
+-- Enable secure delete
+PRAGMA secure_delete = ON;
+
+-- Set synchronous mode for data integrity
+PRAGMA synchronous = FULL;
+
+-- Enable query-only mode for read operations
+PRAGMA query_only = ON;
+
+-- Set cache size for performance
+PRAGMA cache_size = 2000;
+
+-- Enable integrity check
+PRAGMA integrity_check;
+```
+
+### Security Tables Schema
+
+```sql
+-- Users table with security fields
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended', 'banned')),
+    failed_login_attempts INTEGER DEFAULT 0,
+    last_login DATETIME,
+    password_changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Roles table
+CREATE TABLE roles (
+    id INTEGER PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Permissions table
+CREATE TABLE permissions (
+    id INTEGER PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- User roles junction table
+CREATE TABLE user_roles (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    role_id INTEGER NOT NULL,
+    assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+    UNIQUE(user_id, role_id)
+);
+
+-- Role permissions junction table
+CREATE TABLE role_permissions (
+    id INTEGER PRIMARY KEY,
+    role_id INTEGER NOT NULL,
+    permission_id INTEGER NOT NULL,
+    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
+    UNIQUE(role_id, permission_id)
+);
+
+-- MFA table
+CREATE TABLE user_mfa (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER UNIQUE NOT NULL,
+    secret TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT 0,
+    backup_codes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Security logs table
+CREATE TABLE security_logs (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER,
+    event_type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    metadata TEXT,
+    ip_address TEXT,
+    user_agent TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Blocked IPs table
+CREATE TABLE blocked_ips (
+    id INTEGER PRIMARY KEY,
+    ip_address TEXT UNIQUE NOT NULL,
+    reason TEXT NOT NULL,
+    blocked_until DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Sensitive data table
+CREATE TABLE sensitive_data (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    encrypted_data TEXT NOT NULL,
+    iv TEXT,
+    auth_tag TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Strong Authentication">
+    Implement strong password policies, MFA, and secure session management.
+  </Step>
+  <Step title="Implement RBAC">
+    Use role-based access control to limit user permissions appropriately.
+  </Step>
+  <Step title="Encrypt Sensitive Data">
+    Encrypt sensitive data at rest and in transit using strong encryption algorithms.
+  </Step>
+  <Step title="Validate and Sanitize Input">
+    Always validate and sanitize user input to prevent injection attacks.
+  </Step>
+  <Step title="Monitor Security Events">
+    Implement comprehensive audit logging and security monitoring.
+  </Step>
+  <Step title="Use HTTPS">
+    Always use HTTPS in production to encrypt data in transit.
+  </Step>
+  <Step title="Regular Security Updates">
+    Keep all dependencies and systems updated with security patches.
+  </Step>
+  <Step title="Implement Rate Limiting">
+    Use rate limiting to prevent brute force attacks and abuse.
+  </Step>
+</Steps>
+
+<Note>
+Security is a critical aspect of any database application. Always implement multiple layers of security and regularly audit your security measures to ensure they remain effective.
+</Note>
